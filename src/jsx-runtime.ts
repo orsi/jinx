@@ -2,12 +2,12 @@ type Children = JSX.Element | string | number;
 type AppRoot = {
   index: number;
   target: Element;
-  lastFrame?: RenderFrame;
+  _inProgress?: RenderFrame;
   frames: RenderFrame[];
   render: (element: RenderableItems) => RenderFrame;
-  update: (newTarget: Element, element: RenderableItems, lastFrame: RenderFrame) => RenderFrame;
+  update: (newTarget: Element, element: RenderableItems, _inProgress: RenderFrame) => RenderFrame;
   setRenderingFrame: (frame: RenderFrame) => void;
-  getRenderingFrame: () => RenderFrame | undefined;
+  getCurrent: () => RenderFrame | undefined;
 };
 type TextRender = string | number | boolean;
 type Renderable = JSX.Element | TextRender;
@@ -33,164 +33,210 @@ interface RenderFrame<T = any> {
   children: RenderFrame[];
 }
 
-const APPS: AppRoot[] = [];
-let currentApp: AppRoot | undefined;
+const APPS: any[] = [];
+let currentApp: any | undefined;
 
 function getCurrentApp() {
   return currentApp!;
 }
 
 export function createRoot(target: Element) {
-  let app: AppRoot = {
+  let app: any = {
     index: APPS.length,
     target,
     frames: [],
-    render: (element: RenderableItems) => {
+    render: (element: RenderableItems, previous?: any) => {
       currentApp = app;
-      const rendered = renderRoot(target, element);
+      const rendering = {
+        app,
+        previous,
+      };
+      const rendered = render(target, element, rendering);
       app.frames.push(rendered);
       return rendered;
     },
-    update: (target: Element, element: RenderableItems, lastFrame: RenderFrame) => {
+    update: (previous?: any) => {
+      const t0 = performance.now();
+
       currentApp = app;
-      const rendered = renderRoot(target, element, undefined, lastFrame);
+      const rendering = {
+        app,
+        previous,
+      };
+      const rendered = render(previous.target, previous.element, rendering);
       app.frames.push(rendered);
+      const t1 = performance.now();
+      console.log(`update: ${t1 - t0} milliseconds.`);
       return rendered;
     },
-    setRenderingFrame(frame: RenderFrame) {
-      app.lastFrame = frame;
+    setCurrent(rendering) {
+      app.rendering = rendering;
     },
-    getRenderingFrame() {
-      return app.lastFrame;
+    getCurrent() {
+      return app.rendering;
     },
   };
   APPS.push(app);
   return app;
 }
 
-function renderRoot(target: Element, element: RenderableItems, parent?: RenderFrame, previous?: RenderFrame) {
-  const app = getCurrentApp();
-  const frame: RenderFrame = {
-    createdAt: Date.now(),
-    frame: app.frames.length + 1,
-    app,
-    props: {
-      target,
-      element,
-    },
-    parent,
-    previous,
-    children: [],
-  };
-  app.setRenderingFrame(frame);
+function render(target: Node, element: RenderableItems, rendering: any) {
+  rendering.app.setCurrent(rendering);
 
-  if (Array.isArray(element)) {
-    // children
-    for (const [i, child] of element.entries()) {
-      const rendered = renderRoot(target, child, frame, frame.previous?.children[i]);
-      frame.children.push(rendered);
-    }
-  } else if (typeof element === "string" || typeof element === "number" || typeof element === "boolean") {
-    // text
-    const text = element.toString();
-    frame.container = frame.previous?.container as Text;
-    if (frame.container == null) {
-      frame.container = document.createTextNode(text);
-      target.appendChild(frame.container);
-    } else if (target !== frame.previous?.props.target) {
-      frame.container = document.createTextNode(text);
-      target.appendChild(frame.container);
-    } else if (text !== frame.container.textContent) {
-      frame.container.textContent = text;
-    }
-  } else if (typeof element === "object" && typeof element.tag === "string") {
-    // html
-    frame.container = frame.previous?.container as HTMLElement;
-    if (frame.container == null) {
-      frame.container = document.createElement(element.tag);
-      target.appendChild(frame.container);
-    } else if ((element as JSX.Element).tag !== frame.container?.tagName?.toLowerCase()) {
-      const newContainer = document.createElement(element.tag);
-      frame.container.parentNode?.replaceChild(newContainer, frame.container);
-      frame.container = newContainer;
-    }
+  const tag = element?.tag?.name ?? element?.tag ?? element;
+  const type = Array.isArray(element)
+    ? "children"
+    : typeof element === "string" || typeof element === "number"
+    ? "text"
+    : typeof element === "object" && typeof element.tag === "string"
+    ? "html"
+    : "function";
 
-    if (element.props != null) {
-      for (const prop of Object.keys(element.props)) {
-        const value = element.props[prop];
-        const last = (frame.previous?.props.element as JSXHTMLElement | undefined)?.props[prop];
-        const isEvent = prop.startsWith("on") && prop.substring(2).toLowerCase() in frame.container;
+  let node: Node = rendering?.previous?.node;
+  let children: ReturnType<typeof render>[] = [];
 
-        if (last === value) {
-          // noop
-        } else if (isEvent) {
-          const eventName = prop.substring(2).toLowerCase() as keyof ElementEventMap;
-          frame.container.removeEventListener(eventName, last as EventListenerOrEventListenerObject);
-          frame.container.addEventListener(eventName, value as EventListenerOrEventListenerObject);
-        } else {
-          (frame.container as HTMLElement).setAttribute(prop, value as string);
+  const sameTarget = rendering?.previous?.target === target;
+  const sameTag = rendering?.previous?.tag === tag;
+  const sameType = rendering?.previous?.type === type;
+  // console.log(`${tag} - sameTarget? ${sameTarget}, sameTag? ${sameTag}, sameType? ${sameType},`);
+
+  switch (type) {
+    case "children": {
+      // children
+      element = element as Renderable[];
+      const _children = element?.filter((child) => typeof child !== "boolean")?.flat() ?? [];
+      for (const [i, child] of _children?.entries()) {
+        const rendered = render(target, child, {
+          app: rendering.app,
+          parent: rendering,
+          previous: rendering.previous?.children[i],
+        });
+        children.push(rendered);
+      }
+      break;
+    }
+    case "text": {
+      // text
+      element = element as TextRender;
+      const text = element.toString();
+      if (node == null) {
+        node = document.createTextNode(text);
+        target.appendChild(node);
+      } else {
+        node.textContent = text;
+      }
+
+      if (!sameTarget) {
+        target.appendChild(node);
+      }
+
+      break;
+    }
+    case "html": {
+      element = element as JSXHTMLElement;
+      const isDifferentElement = node != null && node.nodeName.toLowerCase() !== element.tag;
+
+      if (isDifferentElement) {
+        // remove previous
+        const newElement = document.createElement(element.tag);
+        node.parentNode?.replaceChild(newElement, node);
+        node = newElement;
+      }
+
+      if (node == null) {
+        // create new
+        node = document.createElement(element.tag);
+        target.appendChild(node);
+      }
+
+      if (element.props != null) {
+        for (const prop of Object.keys(element.props)) {
+          const last = rendering.previous?.element?.props?.[prop];
+          const value = element.props[prop];
+          const isEvent = prop.startsWith("on") && prop.substring(2).toLowerCase() in node;
+
+          if (isEvent) {
+            const eventName = prop.substring(2).toLowerCase() as keyof ElementEventMap;
+            node.removeEventListener(eventName, last as EventListenerOrEventListenerObject);
+            node.addEventListener(eventName, value as EventListenerOrEventListenerObject);
+          } else {
+            (node as HTMLElement).setAttribute(prop, value as string);
+          }
         }
       }
-    }
 
-    // render children
-    if (element.children != null) {
-      for (const [i, child] of element.children.entries()) {
-        const rendered = renderRoot((frame.container as Element) ?? target, child, frame, frame.previous?.children[i]);
-        frame.children.push(rendered);
+      const htmlChildren = element.children?.filter((child) => typeof child !== "boolean")?.flat() ?? [];
+      for (const [i, child] of htmlChildren?.entries()) {
+        const rendered = render(node, child, {
+          app: rendering.app,
+          parent: rendering,
+          previous: rendering.previous?.children[i],
+        });
+        children.push(rendered);
       }
+      break;
     }
-  } else if (typeof element === "object" && element.tag === Fragment) {
-    // fragment
-    const rendered = renderRoot(target, element.children ?? [], frame, frame.previous?.children[0]);
-    frame.children.push(rendered);
-  } else if (typeof element === "object" && typeof element.tag === "function") {
-    // component
-    frame.states = frame.previous?.states;
-    if (frame.states == null) {
-      frame.states = {
-        index: 0,
-        values: [],
-      };
+    case "function": {
+      element = element as JSXFunctionElement;
+      element.props = element.props ?? {};
+      element.props.children = element.children;
+      rendering.state = rendering.previous?.state ?? [];
+      rendering.stateIndex = 0;
+      const jsx = element.tag(element.props);
+      if (jsx.tag === Fragment) {
+        const fragmentChildren = jsx.children?.filter((child) => typeof child !== "boolean")?.flat() ?? [];
+        for (const [i, child] of fragmentChildren?.entries()) {
+          const rendered = render(target, child, {
+            app: rendering.app,
+            parent: rendering,
+            previous: rendering.previous?.children[i],
+          });
+          children.push(rendered);
+        }
+      } else {
+        const rendered = render(target, jsx, {
+          app: rendering.app,
+          parent: rendering,
+          previous: rendering.previous?.children[0],
+        });
+        children.push(rendered);
+      }
+
+      break;
     }
-    frame.states.index = 0;
-
-    frame.container = element.tag({
-      ...element.props,
-      children: element.children,
-    });
-
-    const rendered = renderRoot(target, frame.container, frame, frame.previous?.children[0]);
-    frame.children.push(rendered);
-  } else {
-    throw Error("unknown");
   }
+  rendering.tag = tag;
+  rendering.type = type;
+  rendering.element = element;
+  rendering.target = target;
+  rendering.node = node;
+  rendering.children = children;
 
-  return frame;
+  return rendering;
 }
 
 export function useState<T>(initialValue: T) {
   const app = getCurrentApp();
-  const context = app.getRenderingFrame();
-  if (context == null || context.props.element == null || context.states == null) {
+  const rendering = app.getCurrent();
+  if (rendering == null) {
     throw Error("What the heck am I supposed to do now????");
   }
 
-  const { index, values } = context.states;
-  let value = values[index];
-  if (value == null) {
-    value = values[index] = initialValue;
+  let index = rendering.stateIndex;
+  let state = rendering.state[index];
+  if (state == null) {
+    state = rendering.state[index] = initialValue;
   }
 
   const set = (value: T) => {
-    values[index] = value;
-    app.update(context.props.target, context.props.element, context);
+    rendering.state[index] = value;
+    app.update(rendering);
   };
 
   // bump state index
-  context.states.index++;
+  rendering.stateIndex++;
 
-  return [values[index], set] as [T, (value: T) => void];
+  return [state, set] as [T, (value: T) => void];
 }
 
 export function jsx(tag: JSX.Element["tag"], props?: Record<string, unknown>, ...children: Children[]) {
@@ -201,7 +247,9 @@ export function jsx(tag: JSX.Element["tag"], props?: Record<string, unknown>, ..
   };
 }
 
-export function Fragment() {}
+export function Fragment(props: any) {
+  return props.children;
+}
 
 type JSXElement<T = any> =
   | Partial<T>
