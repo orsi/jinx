@@ -6,7 +6,7 @@ type AppRoot = {
   frames: RenderFrame[];
   render: (element: RenderableItems) => RenderFrame;
   update: (newTarget: Element, element: RenderableItems, _inProgress: RenderFrame) => RenderFrame;
-  setRenderingFrame: (frame: RenderFrame) => void;
+  setCurrent: (frame: RenderFrame) => void;
   getCurrent: () => RenderFrame | undefined;
 };
 type TextRender = string | number | boolean;
@@ -15,22 +15,16 @@ type RenderableItems = Renderable | Renderable[];
 
 interface RenderFrame<T = any> {
   app: AppRoot;
-  createdAt: number;
-  frame: number;
-  props: {
-    target: Element;
-    element: RenderableItems;
-  };
-  //
-  container?: Text | HTMLElement | JSX.Element;
-  index?: number;
-  states?: {
-    index: 0;
-    values: T[];
-  };
-  previous?: RenderFrame;
-  parent?: RenderFrame;
+  tag?: string;
+  type?: string;
   children: RenderFrame[];
+  target: Element;
+  output: (HTMLElement | Text)[];
+  element: RenderableItems;
+  previous?: RenderFrame;
+  parent?: RenderFrame<T>;
+  stateIndex?: 0;
+  state?: T[];
 }
 
 const APPS: any[] = [];
@@ -40,36 +34,63 @@ function getCurrentApp() {
   return currentApp!;
 }
 
-export function createRoot(target: Element) {
+export function createRoot(target: HTMLElement | null) {
+  if (!target) {
+    throw Error("No target specified.");
+  }
+
   let app: any = {
     index: APPS.length,
     target,
     frames: [],
-    render: (element: RenderableItems, previous?: any) => {
+    render: (element: RenderableItems, previous?: RenderFrame) => {
       currentApp = app;
       const rendering = {
         app,
+        tag: undefined,
+        type: undefined,
+        element,
+        children: [],
+        output: [],
         previous,
+        target,
       };
-      const rendered = render(target, element, rendering);
+      const t0 = performance.now();
+      const rendered = render(rendering);
+
+      for (const output of rendered.output) {
+        target.append(output);
+      }
+
+      const t1 = performance.now();
+      console.log(`render: ${t1 - t0} ms`);
       app.frames.push(rendered);
       return rendered;
     },
-    update: (previous?: any) => {
+    update: (previous: RenderFrame) => {
       const t0 = performance.now();
 
       currentApp = app;
       const rendering = {
         app,
+        element: previous.element,
+        children: [],
+        output: [],
         previous,
+        target: previous.target,
       };
-      const rendered = render(previous.target, previous.element, rendering);
+      const rendered = render(rendering);
+
+      // for (const output of rendered.output) {
+      //   target.append(output);
+      // }
+
       app.frames.push(rendered);
       const t1 = performance.now();
-      console.log(`update: ${t1 - t0} milliseconds.`);
+      console.log(`update: ${t1 - t0} ms`);
       return rendered;
     },
-    setCurrent(rendering) {
+    setCurrent(rendering: RenderFrame) {
       app.rendering = rendering;
     },
     getCurrent() {
@@ -80,10 +101,12 @@ export function createRoot(target: Element) {
   return app;
 }
 
-function render(target: Node, element: RenderableItems, rendering: any) {
-  rendering.app.setCurrent(rendering);
+function render(rendering: RenderFrame) {
+  let { app, target, previous, parent, output, children, element } = rendering;
 
-  const tag = element?.tag?.name ?? element?.tag ?? element;
+  app.setCurrent(rendering);
+
+  const tag = (element as JSXFunctionElement)?.tag?.name ?? (element as JSXHTMLElement)?.tag ?? element;
   const type = Array.isArray(element)
     ? "children"
     : typeof element === "string" || typeof element === "number"
@@ -92,125 +115,136 @@ function render(target: Node, element: RenderableItems, rendering: any) {
     ? "html"
     : "function";
 
-  let node: Node = rendering?.previous?.node;
-  let children: ReturnType<typeof render>[] = [];
-
-  const sameTarget = rendering?.previous?.target === target;
-  const sameTag = rendering?.previous?.tag === tag;
-  const sameType = rendering?.previous?.type === type;
-  // console.log(`${tag} - sameTarget? ${sameTarget}, sameTag? ${sameTag}, sameType? ${sameType},`);
+  rendering.tag = tag;
+  rendering.type = type;
 
   switch (type) {
     case "children": {
-      // children
       element = element as Renderable[];
-      const _children = element?.filter((child) => typeof child !== "boolean")?.flat() ?? [];
+
+      const _children = element.filter((child) => typeof child !== "boolean").flat();
       for (const [i, child] of _children?.entries()) {
-        const rendered = render(target, child, {
-          app: rendering.app,
+        const previousRender = previous?.children[i];
+        const rendered = render({
+          app,
+          element: child,
+          children: [],
+          output: [],
           parent: rendering,
-          previous: rendering.previous?.children[i],
+          target,
+          previous: previousRender,
         });
+        output.push(...rendered.output);
         children.push(rendered);
+
+        const previousItem = previousRender?.output[0];
+        const currentItem = rendered.output[0];
+
+        if (previousItem == null) {
+          target.append(currentItem);
+        } else if (previousItem === currentItem) {
+          continue;
+        } else if (currentItem == null) {
+          previousItem.remove();
+        } else if (previousItem !== currentItem) {
+          previousItem.replaceWith(currentItem);
+        }
       }
+
+      if (previous?.output && previous.output.length > output.length) {
+        const chopIndex = output.length;
+        for (let i = chopIndex; i < previous.output.length; i++) {
+          const _output = previous.output[i];
+          _output.remove();
+        }
+      }
+
       break;
     }
     case "text": {
-      // text
       element = element as TextRender;
-      const text = element.toString();
-      if (node == null) {
-        node = document.createTextNode(text);
-        target.appendChild(node);
-      } else {
-        node.textContent = text;
-      }
 
-      if (!sameTarget) {
-        target.appendChild(node);
+      let textNode = previous?.output?.[0];
+      const isDifferent = textNode != null && textNode.nodeName.toLowerCase() !== "#text";
+      if (textNode == null || isDifferent) {
+        textNode = document.createTextNode(element.toString());
+      } else if (textNode.textContent !== element) {
+        textNode.textContent = element.toString();
       }
-
+      output.push(textNode);
       break;
     }
     case "html": {
       element = element as JSXHTMLElement;
-      const isDifferentElement = node != null && node.nodeName.toLowerCase() !== element.tag;
 
-      if (isDifferentElement) {
-        // remove previous
-        const newElement = document.createElement(element.tag);
-        node.parentNode?.replaceChild(newElement, node);
-        node = newElement;
+      let htmlElement = previous?.output?.[0];
+      const isDifferent = htmlElement != null && htmlElement.nodeName.toLowerCase() !== element.tag;
+      if (htmlElement == null || isDifferent) {
+        htmlElement = document.createElement(element.tag);
       }
 
-      if (node == null) {
-        // create new
-        node = document.createElement(element.tag);
-        target.appendChild(node);
-      }
+      output.push(htmlElement);
+      htmlElement = htmlElement as HTMLElement;
 
+      // TODO: need to diff props from previous render
       if (element.props != null) {
-        for (const prop of Object.keys(element.props)) {
-          const last = rendering.previous?.element?.props?.[prop];
-          const value = element.props[prop];
-          const isEvent = prop.startsWith("on") && prop.substring(2).toLowerCase() in node;
+        for (const [prop, value] of Object.entries(element.props)) {
+          const last = (previous?.element as JSXHTMLElement)?.props?.[prop];
+          const isEvent = prop.startsWith("on") && prop.substring(2).toLowerCase() in htmlElement;
 
           if (isEvent) {
             const eventName = prop.substring(2).toLowerCase() as keyof ElementEventMap;
-            node.removeEventListener(eventName, last as EventListenerOrEventListenerObject);
-            node.addEventListener(eventName, value as EventListenerOrEventListenerObject);
+            htmlElement.removeEventListener(eventName, last as EventListenerOrEventListenerObject);
+            htmlElement.addEventListener(eventName, value as EventListenerOrEventListenerObject);
           } else {
-            (node as HTMLElement).setAttribute(prop, value as string);
+            htmlElement.setAttribute(prop, value as string);
           }
         }
       }
 
-      const htmlChildren = element.children?.filter((child) => typeof child !== "boolean")?.flat() ?? [];
-      for (const [i, child] of htmlChildren?.entries()) {
-        const rendered = render(node, child, {
-          app: rendering.app,
-          parent: rendering,
-          previous: rendering.previous?.children[i],
-        });
-        children.push(rendered);
-      }
+      const childrenRender = render({
+        app,
+        children: [],
+        element: element.children ?? [],
+        output: [],
+        parent: rendering,
+        target: htmlElement,
+        previous: isDifferent ? undefined : previous?.children[0],
+      });
+      children.push(childrenRender);
+
       break;
     }
     case "function": {
       element = element as JSXFunctionElement;
-      element.props = element.props ?? {};
-      element.props.children = element.children;
-      rendering.state = rendering.previous?.state ?? [];
-      rendering.stateIndex = 0;
-      const jsx = element.tag(element.props);
-      if (jsx.tag === Fragment) {
-        const fragmentChildren = jsx.children?.filter((child) => typeof child !== "boolean")?.flat() ?? [];
-        for (const [i, child] of fragmentChildren?.entries()) {
-          const rendered = render(target, child, {
-            app: rendering.app,
-            parent: rendering,
-            previous: rendering.previous?.children[i],
-          });
-          children.push(rendered);
-        }
+
+      let _element;
+      if (element.tag === Fragment) {
+        _element = element.children ?? [];
       } else {
-        const rendered = render(target, jsx, {
-          app: rendering.app,
-          parent: rendering,
-          previous: rendering.previous?.children[0],
-        });
-        children.push(rendered);
+        const props = element.props ?? {};
+        props.children = element.children;
+
+        rendering.state = previous?.state ?? [];
+        rendering.stateIndex = 0;
+
+        _element = element.tag(props);
       }
 
+      const rendered = render({
+        app,
+        children: [],
+        element: _element,
+        output: [],
+        parent: rendering,
+        target,
+        previous: previous?.children[0],
+      });
+      output.push(...rendered.output);
+      children.push(rendered);
       break;
     }
   }
-  rendering.tag = tag;
-  rendering.type = type;
-  rendering.element = element;
-  rendering.target = target;
-  rendering.node = node;
-  rendering.children = children;
 
   return rendering;
 }
@@ -233,10 +267,33 @@ export function useState<T>(initialValue: T) {
     app.update(rendering);
   };
 
-  // bump state index
   rendering.stateIndex++;
 
   return [state, set] as [T, (value: T) => void];
+}
+
+export function useReducer<S, A>(reducer: (state: S, action: A) => S, initialValue: S) {
+  const app = getCurrentApp();
+  const rendering = app.getCurrent();
+  if (rendering == null) {
+    throw Error("What the heck am I supposed to do now????");
+  }
+
+  let index = rendering.stateIndex;
+  let state = rendering.state[index];
+  if (state == null) {
+    state = rendering.state[index] = initialValue;
+  }
+
+  const dispatch = (action: A) => {
+    rendering.state[index] = reducer(state, action);
+    app.update(rendering);
+  };
+
+  // bump state index
+  rendering.stateIndex++;
+
+  return [state, dispatch] as [S, typeof dispatch];
 }
 
 export function jsx(tag: JSX.Element["tag"], props?: Record<string, unknown>, ...children: Children[]) {
@@ -303,7 +360,7 @@ declare global {
       // blockquote: React.DetailedHTMLProps<React.BlockquoteHTMLAttributes<HTMLElement>, HTMLElement>;
       // body: React.DetailedHTMLProps<React.HTMLAttributes<HTMLBodyElement>, HTMLBodyElement>;
       // br: React.DetailedHTMLProps<React.HTMLAttributes<HTMLBRElement>, HTMLBRElement>;
-      button: JSXElement<HTMLButtonElement>;
+      // button: JSXElement<HTMLButtonElement>;
       // canvas: React.DetailedHTMLProps<React.CanvasHTMLAttributes<HTMLCanvasElement>, HTMLCanvasElement>;
       // caption: React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement>;
       // cite: React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement>;
@@ -320,15 +377,15 @@ declare global {
       // div: React.DetailedHTMLProps<React.HTMLAttributes<HTMLDivElement>, HTMLDivElement>;
       // dl: React.DetailedHTMLProps<React.HTMLAttributes<HTMLDListElement>, HTMLDListElement>;
       // dt: React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement>;
-      em: JSXElement<HTMLElement>;
+      // em: JSXElement<HTMLElement>;
       // embed: React.DetailedHTMLProps<React.EmbedHTMLAttributes<HTMLEmbedElement>, HTMLEmbedElement>;
       // fieldset: React.DetailedHTMLProps<React.FieldsetHTMLAttributes<HTMLFieldSetElement>, HTMLFieldSetElement>;
       // figcaption: React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement>;
       // figure: React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement>;
       // footer: React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement>;
       // form: React.DetailedHTMLProps<React.FormHTMLAttributes<HTMLFormElement>, HTMLFormElement>;
-      h1: JSXElement<HTMLHeadingElement>;
-      h2: JSXElement<HTMLHeadingElement>;
+      // h1: JSXElement<HTMLHeadingElement>;
+      // h2: JSXElement<HTMLHeadingElement>;
       // h3: React.DetailedHTMLProps<React.HTMLAttributes<HTMLHeadingElement>, HTMLHeadingElement>;
       // h4: React.DetailedHTMLProps<React.HTMLAttributes<HTMLHeadingElement>, HTMLHeadingElement>;
       // h5: React.DetailedHTMLProps<React.HTMLAttributes<HTMLHeadingElement>, HTMLHeadingElement>;
