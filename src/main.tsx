@@ -1,25 +1,28 @@
-import { createRoot, useState } from "./jsx-runtime";
+import { createRoot, useReducer, useState } from "./jsx-runtime";
 import "./style.css";
 
-export function MyApp({ prop1, children }: { prop1: string; children: any }) {
+function ChildrenTest({ prop1, prop2, children }: any) {
   return (
     <>
-      <h2>
-        {children}
-        <em>italics baby</em>
-      </h2>
-      <MyCounter message="Render" />
-      <Switcher testAttribute="yo"></Switcher>
-      {prop1}
-      <h2>
-        {children}
-        <em>italics baby</em>
-      </h2>
+      <div>{children}</div>
+      <h5>
+        <>
+          <em>{prop1}</em>
+          <strong>{prop2}</strong>
+        </>
+      </h5>
     </>
   );
 }
+// createRoot(document.querySelector("#app")).render(
+//   <ChildrenTest prop1="hi" prop2="bye">
+//     <>
+//       <h5>i'm child</h5>
+//     </>
+//   </ChildrenTest>
+// );
 
-function MyCounter({ message }: { message: string }) {
+function CountTest({ message }: { message: string }) {
   const [count, setCount] = useState(0);
 
   function onClick() {
@@ -27,15 +30,17 @@ function MyCounter({ message }: { message: string }) {
   }
 
   return (
-    <div>
+    <>
       <button type="button" onClick={onClick}>
-        {message}: {count}
+        {message}
       </button>
-    </div>
+      <div>Count: {count}</div>
+    </>
   );
 }
+// createRoot(document.querySelector("#app")).render(<CountTest message="hi" />);
 
-function Switcher() {
+function SwitchElementsTest() {
   const [toggle, setToggle] = useState(true);
 
   const onClick = () => {
@@ -44,34 +49,18 @@ function Switcher() {
 
   return (
     <>
-      <button style={"margin-top: 120px;"} onClick={onClick}>
-        Switch!
-      </button>
-      {/* {toggle ? <MyCounter message="Count" /> : <h5>butt</h5>} */}
-      {/* {toggle ? <h1>1</h1> : <h2>butt</h2>} */}
-      {toggle && <h1>1</h1>}
-      {!toggle && <h2>butt</h2>}
+      <button onClick={onClick}>Switch!</button>
+      <div>{toggle ? <h1>left</h1> : <h2>right</h2>}</div>
+      <div>
+        {toggle && <small>up</small>}
+        {!toggle && <em>down</em>}
+      </div>
     </>
   );
 }
+// createRoot(document.querySelector("#app")).render(<SwitchElementsTest />);
 
-// render(document.querySelector("#app")!, <MyApp prop1="YO!" />);
-// createRoot(document.querySelector("#app")!).render("hi!");
-// createRoot(document.querySelector("#app")!).render(<MyCounter message="Render" />);
-// createRoot(document.querySelector("#app")!).render(
-//   <>
-//     <div>1</div>
-//     <h1>2</h1>
-//   </>
-// );
-// createRoot(document.querySelector("#app")!).render(
-//   <MyApp prop1="YO!">
-//     <h1>child 1</h1>
-//   </MyApp>
-// );
-// createRoot(document.querySelector("#app")!).render(<Switcher />);
-
-const random = (max) => Math.round(Math.random() * 1000) % max;
+const random = (max: number) => Math.round(Math.random() * 1000) % max;
 
 const A = [
   "pretty",
@@ -119,23 +108,84 @@ const N = [
 
 let nextId = 1;
 
-const count = 10000;
-const _data = new Array(count);
-for (let i = 0; i < count; i++) {
-  _data[i] = {
-    id: nextId++,
-    label: `${A[random(A.length)]} ${C[random(C.length)]} ${N[random(N.length)]}`,
-  };
-}
+const buildData = (count: number) => {
+  const data = [];
 
-const Row = ({ selected, item, onClick }) => (
-  <tr style={selected ? "background: red;" : ""} onClick={onClick}>
+  for (let i = 0; i < count; i++) {
+    data.push({
+      id: nextId++,
+      label: `${A[random(A.length)]} ${C[random(C.length)]} ${N[random(N.length)]}`,
+    });
+  }
+
+  return data;
+};
+
+const initialState = { data: [], selected: 0 } as {
+  data: ReturnType<typeof buildData>;
+  selected?: number;
+};
+
+const listReducer = (state: typeof initialState, action: { type: string; id?: number }) => {
+  const { data, selected } = state;
+
+  switch (action.type) {
+    case "RUN":
+      return { data: buildData(1000), selected: 0 };
+    case "RUN_LOTS":
+      return { data: buildData(10000), selected: 0 };
+    case "ADD":
+      return { data: data.concat(buildData(1000)), selected };
+    case "UPDATE": {
+      const newData = data.slice(0);
+
+      for (let i = 0; i < newData.length; i += 10) {
+        const r = newData[i];
+
+        newData[i] = { id: r.id, label: r.label + " !!!" };
+      }
+
+      return { data: newData, selected };
+    }
+    case "CLEAR":
+      return { data: [], selected: 0 };
+    case "SWAP_ROWS":
+      const newdata = [...data];
+      if (data.length > 998) {
+        const d1 = newdata[1];
+        const d998 = newdata[998];
+        newdata[1] = d998;
+        newdata[998] = d1;
+      }
+      return { data: newdata, selected };
+    case "REMOVE": {
+      const idx = data.findIndex((d) => d.id === action.id);
+
+      return { data: [...data.slice(0, idx), ...data.slice(idx + 1)], selected };
+    }
+    case "SELECT":
+      return { data, selected: action.id };
+    default:
+      return state;
+  }
+};
+
+const Row = ({
+  selected,
+  item,
+  dispatch,
+}: {
+  selected: boolean;
+  item: (typeof initialState)["data"][number];
+  dispatch: (action: Parameters<typeof listReducer>[1]) => void;
+}) => (
+  <tr className={selected ? "danger" : ""}>
     <td className="col-md-1">{item.id}</td>
     <td className="col-md-4">
-      <a>{item.label}</a>
+      <a onClick={() => dispatch({ type: "SELECT", id: item.id })}>{item.label}</a>
     </td>
     <td className="col-md-1">
-      <a>
+      <a onClick={() => dispatch({ type: "REMOVE", id: item.id })}>
         <span className="glyphicon glyphicon-remove" aria-hidden="true" />
       </a>
     </td>
@@ -143,61 +193,77 @@ const Row = ({ selected, item, onClick }) => (
   </tr>
 );
 
-const Button = ({ id, cb, title }) => (
-  <div className="col-sm-6 smallpad">
-    <button type="button" className="btn btn-primary btn-block" id={id} onClick={cb}>
-      {title}
-    </button>
-  </div>
-);
-
-const Main = () => {
-  const [data, setData] = useState(_data);
-  const [selected, setSelected] = useState(_data.map((i) => i.id));
-  function dispatch(obj: any) {
-    console.log(obj);
-  }
-
-  function onSelect(id: string) {
-    const newSelected = [...selected.filter((s) => s !== id)];
-    if (!selected.includes(id)) {
-      newSelected.push(id);
-    }
-    setSelected(newSelected);
-  }
+const RowTest = () => {
+  const [index, setIndex] = useState("children-test");
+  const [{ data, selected }, dispatch] = useReducer(listReducer, initialState);
 
   return (
-    <div className="container">
-      <div className="jumbotron">
-        <div className="row">
-          <div className="col-md-6">
-            <h1>React Hooks keyed</h1>
-          </div>
-          <div className="col-md-6">
-            <div className="row">
-              <Button id="run" title="Create 1,000 rows" cb={() => dispatch({ type: "RUN" })} />
-              <Button id="runlots" title="Create 10,000 rows" cb={() => dispatch({ type: "RUN_LOTS" })} />
-              <Button id="add" title="Append 1,000 rows" cb={() => dispatch({ type: "ADD" })} />
-              <Button id="update" title="Update every 10th row" cb={() => dispatch({ type: "UPDATE" })} />
-              <Button id="clear" title="Clear" cb={() => dispatch({ type: "CLEAR" })} />
-              <Button id="swaprows" title="Swap Rows" cb={() => dispatch({ type: "SWAP_ROWS" })} />
-            </div>
-          </div>
+    <div style="height: 100%; display: flex; flex-direction: column;">
+      <h1 style="border-bottom: 1px solid rgba(255,255,255,.3); margin-bottom: 0;">Diagnostics</h1>
+      <div style="height: 100%; display: flex; flex-direction: column;">
+        <div id="buttons" style="display: flex; gap: 2px;">
+          <button onClick={() => dispatch({ type: "RUN" })}>Create 1,000 rows</button>
+          <button onClick={() => dispatch({ type: "RUN_LOTS" })}>Create 10,000 rows</button>
+          <button onClick={() => dispatch({ type: "ADD" })}>Append 1,000 rows</button>
+          <button onClick={() => dispatch({ type: "UPDATE" })}>Update every 10th row</button>
+          <button onClick={() => dispatch({ type: "SWAP_ROWS" })}>Swap Rows</button>
+          <button onClick={() => dispatch({ type: "CLEAR" })}>Clear</button>
+        </div>
+        <div style="height: 100%; min-height: 0; overflow: scroll;">
+          <table>
+            <tbody>
+              {data.map((item) => (
+                <Row item={item} selected={selected === item.id} dispatch={dispatch} />
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
-      <table className="table table-hover table-striped test-data">
-        <tbody>
-          {data.map((item) => (
-            <Row key={item.id} item={item} selected={selected.includes(item.id)} onClick={() => onSelect(item.id)} />
-          ))}
-        </tbody>
-      </table>
-      <span className="preloadicon glyphicon glyphicon-remove" aria-hidden="true" />
     </div>
   );
 };
+createRoot(document.querySelector("#app")).render(<RowTest />);
 
-const t0 = performance.now();
-createRoot(document.getElementById("app")!).render(<Main />);
-const t1 = performance.now();
-console.log(`${t1 - t0} milliseconds.`);
+function RouteTest() {
+  const [index, setIndex] = useState(0);
+
+  return (
+    <>
+      <button onClick={() => setIndex((index + 1) % 2)}>Next</button>
+      {index === 0 && (
+        <div id="0" style="display: flex; text-transform: uppercase;">
+          <strong>0</strong>
+          <h3 style="font-size: .5rem;">
+            I should be <em>REMOVED!!!!</em> on 0
+          </h3>
+        </div>
+      )}
+      {index === 1 && (
+        <div id="1" style="color: green; display: flex; flex-direction: column;">
+          <h4>1</h4>
+        </div>
+      )}
+    </>
+  );
+}
+// createRoot(document.querySelector("#app")).render(<RouteTest />);
+
+function FragmentTest() {
+  const [toggle, setToggle] = useState(true);
+  return toggle ? (
+    <>
+      <span onClick={() => setToggle(!toggle)}>1</span>
+      <div style="color: red;">2</div>
+      <h1 style="color: green;">3</h1>
+      <h2 style="color: blue;">4</h2>
+    </>
+  ) : (
+    <>
+      <small style="color: blue;" onClick={() => setToggle(!toggle)}>
+        small
+      </small>
+      <em>em</em>
+    </>
+  );
+}
+// createRoot(document.querySelector("#app")).render(<FragmentTest />);
