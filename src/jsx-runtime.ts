@@ -14,22 +14,20 @@ export function createRoot(target: HTMLElement | null) {
     index: instances.length,
     target,
     frames: [],
-    render: (element: Renderable | Renderable[], previous?: RenderFrame) => {
+    render: (element: Renderable | Renderable[]) => {
       currentApp = jinx;
-      const rendering: RenderFrame = {
+      const rendering: RenderContext = {
         jinx,
-        tag: undefined,
-        type: undefined,
         element,
-        children: [],
-        output: [],
-        previous,
+        dom: [],
         target,
+        stateIndex: 0,
+        state: [],
       };
       const t0 = performance.now();
-      const rendered = render(rendering);
+      const rendered = render(element, rendering);
 
-      for (const output of rendered.output) {
+      for (const output of rendered.dom ?? []) {
         target.append(output);
       }
 
@@ -38,26 +36,26 @@ export function createRoot(target: HTMLElement | null) {
       jinx.frames.push(rendered);
       return rendered;
     },
-    update: (previous: RenderFrame) => {
+    update: (element, previous) => {
       const t0 = performance.now();
 
       currentApp = jinx;
-      const rendering: RenderFrame = {
+      const rendering: RenderContext = {
         jinx,
-        element: previous.element,
-        children: [],
-        output: [],
+        dom: [],
         previous,
         target: previous.target,
+        stateIndex: 0,
+        state: [],
       };
-      const rendered = render(rendering);
+      const rendered = render(element, rendering);
 
       jinx.frames.push(rendered);
       const t1 = performance.now();
       console.log(`update: ${t1 - t0} ms`);
       return rendered;
     },
-    setCurrent(rendering: RenderFrame) {
+    setCurrent(rendering: RenderContext) {
       jinx._inProgress = rendering;
     },
     getCurrent() {
@@ -68,86 +66,129 @@ export function createRoot(target: HTMLElement | null) {
   return jinx;
 }
 
-function render(rendering: RenderFrame) {
-  let { jinx, target, previous, parent, output, children, element } = rendering;
-  jinx.setCurrent(rendering);
+function render(element: Renderable | Renderable[], context: RenderContext) {
+  let { jinx, target, previous } = context;
 
-  const isDifferentTarget = previous != null && previous?.target !== target;
-
+  let dom: RenderContext["dom"] = [];
+  let rendered: RenderContext["rendered"] = [];
+  let _type: RenderContext["_type"];
+  let _tag: RenderContext["_tag"];
+  let _children;
   if (Array.isArray(element)) {
-    // children
-
-    console.log("isDiffTarget?", isDifferentTarget);
-    const _children = element.filter((child) => typeof child !== "boolean").flat();
-    for (const [i, child] of _children?.entries()) {
-      const previousRender = previous?.children[i];
-      const rendered = render({
-        jinx,
-        element: child,
-        children: [],
-        output: [],
-        parent: rendering,
-        target,
-        previous: previousRender,
-      });
-      output.push(...rendered.output);
-      children.push(rendered);
-
-      const previousItem = previousRender?.output[0];
-      const currentItem = rendered.output[0];
-
-      if (previousItem === currentItem && !isDifferentTarget) {
-        continue;
-      } else if (previousItem == null || (previousItem === currentItem && isDifferentTarget)) {
-        target.append(currentItem);
-      } else if (currentItem == null) {
-        previousItem.remove();
-      } else if (previousItem !== currentItem) {
-        previousItem.replaceWith(currentItem);
-      }
-    }
-
-    if (previous?.output && previous.output.length > output.length) {
-      const chopIndex = output.length;
-      for (let i = chopIndex; i < previous.output.length; i++) {
-        const _output = previous.output[i];
-        _output.remove();
-      }
-    }
+    _type = "children";
+    _tag = `[]:${element.length.toString()}`;
+  } else if (typeof element === "boolean") {
+    _type = "boolean";
+    _tag = element.toString();
   } else if (typeof element === "string" || typeof element === "number") {
-    // text
+    _type = "text";
+    _tag = element.toString();
+  } else if (typeof element.tag === "string") {
+    _type = "html";
+    _tag = element.tag;
+    _children = element.children;
+  } else if (typeof element.tag === "function") {
+    _type = "function";
+    _tag = element.tag.name;
+    _children = element.children;
+  }
 
-    let textNode = previous?.output?.[0];
-    const isDifferent = textNode != null && textNode.nodeName.toLowerCase() !== "#text";
-    if (textNode == null || isDifferent) {
-      textNode = document.createTextNode(element.toString());
-    } else if (textNode.textContent !== element) {
-      textNode.textContent = element.toString();
+  context._type = _type;
+  context._tag = _tag;
+  context.dom = dom;
+  context.rendered = rendered;
+  context.element = element;
+
+  jinx.setCurrent(context);
+
+  // children
+  if (Array.isArray(element)) {
+    const _children = element.filter((element) => typeof element !== "boolean").flat();
+    for (const [i, child] of _children?.entries()) {
+      const _rendered = render(child, {
+        jinx,
+        dom: [],
+        parent: context,
+        target,
+        previous: previous?.rendered?.[i],
+        stateIndex: 0,
+        state: [],
+      });
+      dom.push(...(_rendered.dom ?? []));
+      rendered.push(_rendered);
     }
-    output.push(textNode);
-  } else if (typeof element === "object" && typeof element.tag === "string") {
-    // html
 
-    let previousOutput = previous?.output?.[0];
+    // remove or reattach previous children
+    if (previous != null && previous.dom) {
+      const cull = previous.dom.length - (previous.dom.length - dom.length);
+      for (let i = cull; i < previous.dom.length; i++) {
+        previous.dom[i].remove();
+      }
+
+      const attach = dom.length - (dom.length - previous.dom.length);
+      for (let i = attach; i < dom.length; i++) {
+        target.append(dom[i]);
+      }
+    }
+
+    return context;
+  }
+
+  if (typeof element === "boolean") {
+    // not rendered
+    return context;
+  }
+
+  // text
+  if (typeof element === "string" || typeof element === "number") {
+    const text = element.toString();
+    const previousNode = previous?.dom?.[0];
+    const wasText = previousNode != null && previousNode.nodeName.toLowerCase() === "#text";
+
+    let textNode;
+    if (wasText) {
+      textNode = previousNode as Text;
+      textNode.textContent = text;
+    } else if (previousNode != null && !wasText) {
+      textNode = document.createTextNode(text);
+      previousNode.replaceWith(textNode);
+    } else {
+      textNode = document.createTextNode(text);
+    }
+    dom.push(textNode);
+
+    return context;
+  }
+
+  // html
+  if (typeof element.tag === "string") {
+    const previousDom = previous?.dom?.[0];
     let htmlElement: HTMLElement;
-    if (previousOutput == null || previousOutput.nodeName.toLowerCase() !== element.tag) {
+
+    const isDifferent = previousDom != null && previousDom.nodeName.toLowerCase() !== element.tag;
+
+    if (isDifferent) {
+      htmlElement = document.createElement(element.tag);
+      previousDom.replaceWith(htmlElement);
+    } else if (previousDom == null) {
       htmlElement = document.createElement(element.tag);
     } else {
-      htmlElement = previousOutput as HTMLElement;
+      htmlElement = previousDom as HTMLElement;
     }
 
-    output.push(htmlElement);
+    dom.push(htmlElement);
 
-    if (element.children == null) {
-      debugger;
-    }
-    if (element.props == null) {
-      debugger;
+    let previousProps: Record<string, unknown> | undefined;
+    if (!Array.isArray(previous?.element) && typeof previous?.element === "object") {
+      previousProps = previous.element.props;
+      for (const [prop, value] of Object.entries(previous?.element.props ?? {})) {
+        htmlElement.setAttribute(prop, "");
+      }
     }
 
-    // TODO: need to diff props from previous render
-    for (const [prop, value] of Object.entries(element.props)) {
-      const last = previous?.element?.props?.[prop];
+    const currentProps = element.props ?? {};
+    for (const [prop, value] of Object.entries(currentProps)) {
+      const last = previousProps?.[prop];
       const isEvent = prop.startsWith("on") && prop.substring(2).toLowerCase() in htmlElement;
 
       if (isEvent) {
@@ -159,48 +200,52 @@ function render(rendering: RenderFrame) {
       }
     }
 
-    const childrenRender = render({
-      jinx,
-      children: [],
-      element: element.children ?? [],
-      output: [],
-      parent: rendering,
-      target: htmlElement,
-      previous: previous?.children[0],
-    });
-    children.push(childrenRender);
-  } else if (typeof element === "object" && typeof element.tag === "function") {
-    // function
-
-    let _element;
-    if (element.tag === Fragment) {
-      _element = element.children ?? [];
-    } else {
-      const props = {
-        ...element.props,
-        children: element.children,
-      };
-
-      rendering.state = previous?.state ?? [];
-      rendering.stateIndex = 0;
-
-      _element = element.tag(props);
+    // render children
+    if (element.children) {
+      const _rendered = render(element.children.flat(), {
+        jinx,
+        parent: context,
+        target,
+        previous: previous?.rendered?.[0],
+        stateIndex: 0,
+        state: [],
+      });
+      rendered.push(_rendered);
+      const _domNodes = rendered.map((render) => render.dom ?? []).flat() ?? [];
+      htmlElement.append(..._domNodes);
     }
 
-    const rendered = render({
-      jinx,
-      children: [],
-      element: _element,
-      output: [],
-      parent: rendering,
-      target,
-      previous: previous?.children[0],
-    });
-    output.push(...rendered.output);
-    children.push(rendered);
+    return context;
   }
 
-  return rendering;
+  // function
+  if (typeof element.tag === "function") {
+    context.state = previous?.state ?? [];
+    context.stateIndex = 0;
+
+    const props = {
+      ...element.props,
+      children: element.children,
+    };
+    delete element.children;
+    const _element = element.tag(props);
+    const _rendered = render(_element, {
+      jinx,
+      dom: [],
+      parent: context,
+      target,
+      previous: previous?.rendered?.[0],
+      stateIndex: 0,
+      state: [],
+    });
+    rendered.push(_rendered);
+    //
+    const _domNodes = _rendered.dom ?? [];
+    dom.push(..._domNodes);
+    return context;
+  }
+
+  throw Error("what");
 }
 
 export function useState<T>(initialValue: T) {
@@ -218,7 +263,7 @@ export function useState<T>(initialValue: T) {
 
   const set = (value: T) => {
     rendering.state[index] = value;
-    app.update(rendering);
+    app.update(rendering.element as JSX.Element, rendering);
   };
 
   rendering.stateIndex++;
@@ -241,7 +286,7 @@ export function useReducer<S, A>(reducer: (state: S, action: A) => S, initialVal
 
   const dispatch = (action: A) => {
     rendering.state[index] = reducer(state, action);
-    app.update(rendering);
+    app.update(rendering.element!, rendering);
   };
 
   // bump state index
@@ -250,14 +295,10 @@ export function useReducer<S, A>(reducer: (state: S, action: A) => S, initialVal
   return [state, dispatch] as [S, typeof dispatch];
 }
 
-export function jsx(
-  tag: JSX.Element["tag"],
-  props?: JSX.Element["props"],
-  ...children: JSX.Element["children"]
-): JSX.Element {
+export function jsx(tag: string | JSXElementConstructor, props?: unknown, ...children: Renderable[]) {
   return {
     tag,
-    props: props ?? {},
+    props,
     children,
   };
 }
@@ -269,45 +310,47 @@ export function Fragment(props: any) {
 type JinxRoot = {
   index: number;
   target: Element;
-  _inProgress?: RenderFrame;
-  frames: RenderFrame[];
-  render: (element: Renderable | Renderable[]) => RenderFrame;
-  update: (previous: RenderFrame) => RenderFrame;
-  setCurrent: (frame: RenderFrame) => void;
-  getCurrent: () => RenderFrame | undefined;
+  _inProgress?: RenderContext;
+  frames: RenderContext[];
+  render: (element: Renderable | Renderable[]) => RenderContext;
+  update: (element: Renderable | Renderable[], previous: RenderContext) => RenderContext;
+  setCurrent: (frame: RenderContext) => void;
+  getCurrent: () => RenderContext | undefined;
 };
 
-interface RenderFrame<T = any> {
+interface RenderContext<S = any> {
+  _tag?: string;
+  _type?: "children" | "boolean" | "text" | "html" | "function";
   jinx: JinxRoot;
-  tag?: string;
-  type?: string;
-  children: RenderFrame[];
   target: Element;
-  output: (HTMLElement | Text)[];
-  element: Renderable | Renderable[];
-  previous?: RenderFrame;
-  parent?: RenderFrame<T>;
-  stateIndex?: 0;
-  state?: T[];
+  element?: Renderable | Renderable[];
+  dom?: (HTMLElement | Text)[];
+  stateIndex: 0;
+  state: S[];
+  rendered?: RenderContext<S>[];
+  previous?: RenderContext<S>;
+  parent?: RenderContext<S>;
 }
 
-type Renderable = JSX.Element | string | number | boolean;
+type Renderable<P = {}> = JSX.Element<P> | string | number | boolean;
 
-type JSXElementConstructor<P = any> = (props?: P) => Renderable | Renderable[];
+type JSXElementConstructor<P = {}> = (props?: P & { children?: Renderable[] }) => Renderable | Renderable[];
 
-interface JinxElement<T extends string | JSXElementConstructor<any> = string | JSXElementConstructor<any>, P = any> {
-  tag: T;
-  props: P;
-  children: Renderable[];
-}
+type JinxElement<P = {}> =
+  | {
+      tag: string;
+      props?: P;
+      children?: Renderable[];
+    }
+  | {
+      tag: JSXElementConstructor<P>;
+      props?: P;
+      children?: Renderable[];
+    };
 
 declare global {
   namespace JSX {
-    type Element<
-      T extends string | JSXElementConstructor<any> = string | JSXElementConstructor<any>,
-      P = any
-    > = JinxElement<T, P>;
-    type ElementType = string | JSXElementConstructor<any>;
+    type Element<P = {}> = JinxElement<P>;
 
     interface ElementChildrenAttribute {
       children: {};
