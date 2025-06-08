@@ -3,24 +3,17 @@ import "./style.css";
 
 function ChildrenTest({ prop1, prop2, children }: any) {
   return (
-    <>
-      <div>{children}</div>
+    <div>
+      {children}
       <h5>
         <>
           <em>{prop1}</em>
           <strong>{prop2}</strong>
         </>
       </h5>
-    </>
+    </div>
   );
 }
-// createRoot(document.querySelector("#app")).render(
-//   <ChildrenTest prop1="hi" prop2="bye">
-//     <>
-//       <h5>i'm child</h5>
-//     </>
-//   </ChildrenTest>
-// );
 
 function CountTest({ message }: { message: string }) {
   const [count, setCount] = useState(0);
@@ -38,8 +31,6 @@ function CountTest({ message }: { message: string }) {
     </>
   );
 }
-// createRoot(document.querySelector("#app")).render(<CountTest message="hi" />);
-
 function SwitchElementsTest() {
   const [toggle, setToggle] = useState(true);
 
@@ -51,15 +42,13 @@ function SwitchElementsTest() {
     <>
       <button onClick={onClick}>Switch!</button>
       <div>{toggle ? <h1>left</h1> : <h2>right</h2>}</div>
-      <div>
+      <div id="switch">
         {toggle && <small>up</small>}
         {!toggle && <em>down</em>}
       </div>
     </>
   );
 }
-// createRoot(document.querySelector("#app")).render(<SwitchElementsTest />);
-
 const random = (max: number) => Math.round(Math.random() * 1000) % max;
 
 const A = [
@@ -170,7 +159,7 @@ const listReducer = (state: typeof initialState, action: { type: string; id?: nu
   }
 };
 
-const Row = ({
+function Row({
   selected,
   item,
   dispatch,
@@ -178,20 +167,22 @@ const Row = ({
   selected: boolean;
   item: (typeof initialState)["data"][number];
   dispatch: (action: Parameters<typeof listReducer>[1]) => void;
-}) => (
-  <tr className={selected ? "danger" : ""}>
-    <td className="col-md-1">{item.id}</td>
-    <td className="col-md-4">
-      <a onClick={() => dispatch({ type: "SELECT", id: item.id })}>{item.label}</a>
-    </td>
-    <td className="col-md-1">
-      <a onClick={() => dispatch({ type: "REMOVE", id: item.id })}>
-        <span className="glyphicon glyphicon-remove" aria-hidden="true" />
-      </a>
-    </td>
-    <td className="col-md-6" />
-  </tr>
-);
+}) {
+  return (
+    <tr class={selected ? "danger" : ""}>
+      <td>{item.id}</td>
+      <td>
+        <a onClick={() => dispatch({ type: "SELECT", id: item.id })}>{item.label}</a>
+      </td>
+      <td>
+        <a onClick={() => dispatch({ type: "REMOVE", id: item.id })}>
+          <span aria-hidden="true" />
+        </a>
+      </td>
+      <td />
+    </tr>
+  );
+}
 
 const RowTest = () => {
   const [index, setIndex] = useState("children-test");
@@ -223,7 +214,6 @@ const RowTest = () => {
     </div>
   );
 };
-// createRoot(document.querySelector("#app")).render(<RowTest />);
 
 function RouteTest() {
   const [index, setIndex] = useState(0);
@@ -247,24 +237,38 @@ function RouteTest() {
     </>
   );
 }
-createRoot(document.querySelector("#app")).render(<RouteTest />);
 
 function FragmentTest() {
   const [toggle, setToggle] = useState(true);
   return toggle ? (
     <>
-      <span onClick={() => setToggle(!toggle)}>1</span>
+      <small onClick={() => setToggle(!toggle)}>1</small>
       <div style="color: red;">2</div>
       <h1 style="color: green;">3</h1>
       <h2 style="color: blue;">4</h2>
     </>
   ) : (
     <>
-      <small style="color: blue;" onClick={() => setToggle(!toggle)}>
+      maybe
+      <small style="color: blue; font-size: 50px;" onClick={() => setToggle(!toggle)}>
         small
       </small>
       <em>em</em>
     </>
   );
 }
+
+// createRoot(document.querySelector("#app")).render([1, 2, 3, false, 4]);
+// createRoot(document.querySelector("#app")).render(<div>hi</div>);
+// createRoot(document.querySelector("#app")).render(<><>yo yo</></>);
+// createRoot(document.querySelector("#app")).render([1, 2, 3, false, 4]);
+// createRoot(document.querySelector("#app")).render(
+//   <ChildrenTest prop1="hi" prop2="bye">
+//     i'm child
+//   </ChildrenTest>
+// );
+// createRoot(document.querySelector("#app")).render(<CountTest message="hi" />);
+// createRoot(document.querySelector("#app")).render(<SwitchElementsTest />);
+// createRoot(document.querySelector("#app")).render(<RowTest />);
+// createRoot(document.querySelector("#app")).render(<RouteTest />);
 // createRoot(document.querySelector("#app")).render(<FragmentTest />);
