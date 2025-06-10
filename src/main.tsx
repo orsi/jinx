@@ -1,4 +1,4 @@
-import { createRoot, useReducer, useState } from "./jsx-runtime";
+import { createRoot, useReducer, useState } from "./jsx-runtime.ts";
 import "./style.css";
 
 function ChildrenTest({ prop1, prop2, children }: any) {
@@ -189,9 +189,8 @@ const RowTest = () => {
   const [{ data, selected }, dispatch] = useReducer(listReducer, initialState);
 
   return (
-    <div style="height: 100%; display: flex; flex-direction: column;">
-      <h1 style="border-bottom: 1px solid rgba(255,255,255,.3); margin-bottom: 0;">Diagnostics</h1>
-      <div style="height: 100%; display: flex; flex-direction: column;">
+    <div>
+      <div>
         <div id="buttons" style="display: flex; gap: 2px;">
           <button onClick={() => dispatch({ type: "RUN" })}>Create 1,000 rows</button>
           <button onClick={() => dispatch({ type: "RUN_LOTS" })}>Create 10,000 rows</button>
@@ -200,7 +199,7 @@ const RowTest = () => {
           <button onClick={() => dispatch({ type: "SWAP_ROWS" })}>Swap Rows</button>
           <button onClick={() => dispatch({ type: "CLEAR" })}>Clear</button>
         </div>
-        <div style="height: 100%; min-height: 0; overflow: scroll;">
+        <div>
           <table>
             <tbody>
               {data.map((item) => (
@@ -243,7 +242,7 @@ function FragmentTest() {
   return toggle ? (
     <>
       <small onClick={() => setToggle(!toggle)}>1</small>
-      <div style="color: red;">2</div>
+      <div style={{ color: "green" }}>2</div>
       <h1 style="color: green;">3</h1>
       <h2 style="color: blue;">4</h2>
     </>
@@ -258,17 +257,21 @@ function FragmentTest() {
   );
 }
 
-// createRoot(document.querySelector("#app")).render([1, 2, 3, false, 4]);
-// createRoot(document.querySelector("#app")).render(<div>hi</div>);
-// createRoot(document.querySelector("#app")).render(<><>yo yo</></>);
-// createRoot(document.querySelector("#app")).render([1, 2, 3, false, 4]);
-// createRoot(document.querySelector("#app")).render(
-//   <ChildrenTest prop1="hi" prop2="bye">
-//     i'm child
-//   </ChildrenTest>
-// );
-// createRoot(document.querySelector("#app")).render(<CountTest message="hi" />);
-// createRoot(document.querySelector("#app")).render(<SwitchElementsTest />);
-// createRoot(document.querySelector("#app")).render(<RowTest />);
-// createRoot(document.querySelector("#app")).render(<RouteTest />);
-// createRoot(document.querySelector("#app")).render(<FragmentTest />);
+createRoot(document.querySelector("#app")).render([1, 2, 3, false, 4]);
+createRoot(document.querySelector("#app")).render(<div>hi</div>);
+createRoot(document.querySelector("#app")).render(
+  <>
+    <>yo yo</>
+  </>
+);
+createRoot(document.querySelector("#app")).render([1, 2, 3, false, 4]);
+createRoot(document.querySelector("#app")).render(
+  <ChildrenTest prop1="hi" prop2="bye">
+    i'm child
+  </ChildrenTest>
+);
+createRoot(document.querySelector("#app")).render(<CountTest message="hi" />);
+createRoot(document.querySelector("#app")).render(<SwitchElementsTest />);
+createRoot(document.querySelector("#app")).render(<RowTest />);
+createRoot(document.querySelector("#app")).render(<RouteTest />);
+createRoot(document.querySelector("#app")).render(<FragmentTest />);

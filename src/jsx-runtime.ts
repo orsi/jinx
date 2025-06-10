@@ -1,5 +1,5 @@
-const instances: JinxRoot[] = [];
-let currentApp: JinxRoot | undefined;
+const instances: Jinx[] = [];
+let currentApp: Jinx | undefined;
 
 function getCurrentApp() {
   return currentApp!;
@@ -10,7 +10,7 @@ export function createRoot(target: HTMLElement | null) {
     throw Error("No target specified.");
   }
 
-  const jinx: JinxRoot = {
+  const jinx: Jinx = {
     index: instances.length,
     target,
     frames: [],
@@ -195,6 +195,10 @@ function render(element: Renderable | Renderable[], context: RenderContext) {
         const eventName = prop.substring(2).toLowerCase() as keyof ElementEventMap;
         htmlElement.removeEventListener(eventName, last as EventListenerOrEventListenerObject);
         htmlElement.addEventListener(eventName, value as EventListenerOrEventListenerObject);
+      } else if (prop === "style" && value != null && typeof value === "object") {
+        for (const [styleProps, styleValue] of Object.entries(value)) {
+          htmlElement.style.setProperty(styleProps, styleValue);
+        }
       } else {
         htmlElement.setAttribute(prop, value as string);
       }
@@ -227,7 +231,6 @@ function render(element: Renderable | Renderable[], context: RenderContext) {
       ...element.props,
       children: element.children,
     };
-    delete element.children;
     const _element = element.tag(props);
     const _rendered = render(_element, {
       jinx,
@@ -295,10 +298,10 @@ export function useReducer<S, A>(reducer: (state: S, action: A) => S, initialVal
   return [state, dispatch] as [S, typeof dispatch];
 }
 
-export function jsx(tag: string | JSXElementConstructor, props?: unknown, ...children: Renderable[]) {
+export function jsx(tag: string | JSXFunction, props: any, ...children: Renderable[]): JSX.Element {
   return {
     tag,
-    props,
+    props: props ?? {},
     children,
   };
 }
@@ -307,7 +310,12 @@ export function Fragment(props: any) {
   return props.children;
 }
 
-type JinxRoot = {
+// damn this is an amazing hack
+type Prettify<T> = {
+  [K in keyof T]: T[K];
+} & {};
+
+type Jinx = {
   index: number;
   target: Element;
   _inProgress?: RenderContext;
@@ -321,7 +329,7 @@ type JinxRoot = {
 interface RenderContext<S = any> {
   _tag?: string;
   _type?: "children" | "boolean" | "text" | "html" | "function";
-  jinx: JinxRoot;
+  jinx: Jinx;
   target: Element;
   element?: Renderable | Renderable[];
   dom?: (HTMLElement | Text)[];
@@ -332,32 +340,35 @@ interface RenderContext<S = any> {
   parent?: RenderContext<S>;
 }
 
-type Renderable<P = {}> = JSX.Element<P> | string | number | boolean;
+type Renderable = JSX.Element | string | number | boolean;
 
-type JSXElementConstructor<P = {}> = (props?: P & { children?: Renderable[] }) => Renderable | Renderable[];
+type JSXFunction = (props?: any & { children?: Renderable[] }) => JSX.Element;
 
-type JinxElement<P = {}> =
-  | {
-      tag: string;
-      props?: P;
-      children?: Renderable[];
+type IntrinsicHTMLElementsMap = {
+  [key in keyof HTMLElementTagNameMap]: Prettify<
+    Partial<Omit<HTMLElementTagNameMap[key], "style" | "class">> & {
+      // TODO: gotta be a better way to do these
+      style?: Partial<CSSStyleDeclaration>;
+      class?: string;
+      children?: any;
+      onClick?: HTMLElement["onclick"];
     }
-  | {
-      tag: JSXElementConstructor<P>;
-      props?: P;
-      children?: Renderable[];
-    };
+  >;
+};
 
 declare global {
   namespace JSX {
-    type Element<P = {}> = JinxElement<P>;
+    type Element = {
+      tag: string | JSXFunction;
+      props: any;
+      children: Renderable[];
+    };
+    type ElementType = keyof IntrinsicElements | JSXFunction;
 
     interface ElementChildrenAttribute {
       children: {};
     }
 
-    interface IntrinsicElements {
-      [elemName: string]: any;
-    }
+    type IntrinsicElements = IntrinsicHTMLElementsMap;
   }
 }

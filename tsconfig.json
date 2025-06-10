@@ -7,9 +7,6 @@
       "DOM",
       "DOM.Iterable"
     ],
-    "jsx": "preserve",
-    "jsxFactory": "jsx",
-    "jsxFragmentFactory": "Fragment",
     "skipLibCheck": true,
     /* Bundler mode */
     "moduleResolution": "bundler",
@@ -19,6 +16,8 @@
     "noEmit": true,
     /* Linting */
     "strict": true,
+    /* JSX */
+    "jsx": "preserve",
   },
   "include": [
     "src"
