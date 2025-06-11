@@ -351,7 +351,11 @@ type IntrinsicHTMLElementsMap = {
       style?: Partial<CSSStyleDeclaration>;
       class?: string;
       children?: any;
-      onClick?: HTMLElement["onclick"];
+    } & {
+      // hot damn does this actually work?? onclick => onClick
+      [K in keyof GlobalEventHandlers as K extends `on${infer E}`
+        ? `on${Capitalize<E>}`
+        : keyof GlobalEventHandlers]?: GlobalEventHandlers[K];
     }
   >;
 };
