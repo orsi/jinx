@@ -34,7 +34,8 @@ function CountTest({ message }: { message: string }) {
 function SwitchElementsTest() {
   const [toggle, setToggle] = useState(true);
 
-  const onClick = () => {
+  const onClick = (e: MouseEvent) => {
+    console.log(e);
     setToggle(!toggle);
   };
 
