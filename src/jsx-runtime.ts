@@ -1,105 +1,82 @@
-const instances: Jinx[] = [];
 let currentApp: Jinx | undefined;
 
 function getCurrentApp() {
-  return currentApp!;
+  if (currentApp == null) {
+    throw Error("No current app");
+  }
+  return currentApp;
 }
 
-export function createRoot(target: HTMLElement | null) {
-  if (!target) {
-    throw Error("No target specified.");
+export function createRoot(root: HTMLElement) {
+  if (!root) {
+    throw Error("Target is undefined.");
   }
 
   const jinx: Jinx = {
-    index: instances.length,
-    target,
-    frames: [],
-    render: (element: Renderable | Renderable[]) => {
+    root,
+    render(element, previous) {
       currentApp = jinx;
-      const rendering: RenderContext = {
+      const rendering: Render = {
         jinx,
         element,
-        dom: [],
-        target,
+        previous,
+        target: previous?.target ?? root,
         stateIndex: 0,
         state: [],
       };
       const t0 = performance.now();
       const rendered = render(element, rendering);
 
-      for (const output of rendered.dom ?? []) {
-        target.append(output);
+      if (previous == null) {
+        for (const output of rendered.dom ?? []) {
+          root.append(output);
+        }
       }
 
       const t1 = performance.now();
       console.log(`render: ${t1 - t0} ms`);
-      jinx.frames.push(rendered);
-      return rendered;
     },
-    update: (element, previous) => {
-      const t0 = performance.now();
-
-      currentApp = jinx;
-      const rendering: RenderContext = {
-        jinx,
-        dom: [],
-        previous,
-        target: previous.target,
-        stateIndex: 0,
-        state: [],
-      };
-      const rendered = render(element, rendering);
-
-      jinx.frames.push(rendered);
-      const t1 = performance.now();
-      console.log(`update: ${t1 - t0} ms`);
-      return rendered;
-    },
-    setCurrent(rendering: RenderContext) {
-      jinx._inProgress = rendering;
+    setCurrent(rendering: Render) {
+      jinx.currentRender = rendering;
     },
     getCurrent() {
-      return jinx._inProgress;
+      return jinx.currentRender;
     },
   };
-  instances.push(jinx);
   return jinx;
 }
 
-function render(element: Renderable | Renderable[], context: RenderContext) {
+function render(element: Renderable | Renderable[], context: Render) {
   let { jinx, target, previous } = context;
+  jinx.setCurrent(context);
 
-  let dom: RenderContext["dom"] = [];
-  let rendered: RenderContext["rendered"] = [];
-  let _type: RenderContext["_type"];
-  let _tag: RenderContext["_tag"];
-  let _children;
-  if (Array.isArray(element)) {
-    _type = "children";
-    _tag = `[]:${element.length.toString()}`;
-  } else if (typeof element === "boolean") {
-    _type = "boolean";
-    _tag = element.toString();
-  } else if (typeof element === "string" || typeof element === "number") {
-    _type = "text";
-    _tag = element.toString();
-  } else if (typeof element.tag === "string") {
-    _type = "html";
-    _tag = element.tag;
-    _children = element.children;
-  } else if (typeof element.tag === "function") {
-    _type = "function";
-    _tag = element.tag.name;
-    _children = element.children;
+  context.element = element;
+  context.dom = [];
+  context.rendered = [];
+
+  if (import.meta.env.MODE === "development") {
+    if (Array.isArray(element)) {
+      context._type = "children";
+      context._tag = `[]:${element.length.toString()}`;
+    } else if (typeof element === "boolean") {
+      context._type = "boolean";
+      context._tag = element.toString();
+    } else if (typeof element === "string" || typeof element === "number") {
+      context._type = "text";
+      context._tag = element.toString();
+    } else if (typeof element.tag === "string") {
+      context._type = "html";
+      context._tag = element.tag;
+    } else if (typeof element.tag === "function") {
+      context._type = "function";
+      context._tag = element.tag.name;
+    }
   }
 
-  context._type = _type;
-  context._tag = _tag;
-  context.dom = dom;
-  context.rendered = rendered;
-  context.element = element;
-
-  jinx.setCurrent(context);
+  if (typeof element === "boolean") {
+    // not rendered
+    return context;
+  }
 
   // children
   if (Array.isArray(element)) {
@@ -107,35 +84,29 @@ function render(element: Renderable | Renderable[], context: RenderContext) {
     for (const [i, child] of _children?.entries()) {
       const _rendered = render(child, {
         jinx,
-        dom: [],
         parent: context,
         target,
         previous: previous?.rendered?.[i],
         stateIndex: 0,
         state: [],
       });
-      dom.push(...(_rendered.dom ?? []));
-      rendered.push(_rendered);
+      context.dom.push(...(_rendered.dom ?? []));
+      context.rendered.push(_rendered);
     }
 
     // remove or reattach previous children
     if (previous != null && previous.dom) {
-      const cull = previous.dom.length - (previous.dom.length - dom.length);
+      const cull = previous.dom.length - (previous.dom.length - context.dom.length);
       for (let i = cull; i < previous.dom.length; i++) {
         previous.dom[i].remove();
       }
 
-      const attach = dom.length - (dom.length - previous.dom.length);
-      for (let i = attach; i < dom.length; i++) {
-        target.append(dom[i]);
+      const attach = context.dom.length - (context.dom.length - previous.dom.length);
+      for (let i = attach; i < context.dom.length; i++) {
+        target.append(context.dom[i]);
       }
     }
 
-    return context;
-  }
-
-  if (typeof element === "boolean") {
-    // not rendered
     return context;
   }
 
@@ -155,7 +126,7 @@ function render(element: Renderable | Renderable[], context: RenderContext) {
     } else {
       textNode = document.createTextNode(text);
     }
-    dom.push(textNode);
+    context.dom.push(textNode);
 
     return context;
   }
@@ -176,7 +147,7 @@ function render(element: Renderable | Renderable[], context: RenderContext) {
       htmlElement = previousDom as HTMLElement;
     }
 
-    dom.push(htmlElement);
+    context.dom.push(htmlElement);
 
     let previousProps: Record<string, unknown> | undefined;
     if (!Array.isArray(previous?.element) && typeof previous?.element === "object") {
@@ -214,8 +185,8 @@ function render(element: Renderable | Renderable[], context: RenderContext) {
         stateIndex: 0,
         state: [],
       });
-      rendered.push(_rendered);
-      const _domNodes = rendered.map((render) => render.dom ?? []).flat() ?? [];
+      context.rendered.push(_rendered);
+      const _domNodes = context.rendered.map((render) => render.dom ?? []).flat() ?? [];
       htmlElement.append(..._domNodes);
     }
 
@@ -234,21 +205,20 @@ function render(element: Renderable | Renderable[], context: RenderContext) {
     const _element = element.tag(props);
     const _rendered = render(_element, {
       jinx,
-      dom: [],
       parent: context,
       target,
       previous: previous?.rendered?.[0],
       stateIndex: 0,
       state: [],
     });
-    rendered.push(_rendered);
-    //
+    context.rendered.push(_rendered);
+
     const _domNodes = _rendered.dom ?? [];
-    dom.push(..._domNodes);
+    context.dom.push(..._domNodes);
     return context;
   }
 
-  throw Error("what");
+  throw Error("You've reached a dead end...");
 }
 
 export function useState<T>(initialValue: T) {
@@ -266,7 +236,7 @@ export function useState<T>(initialValue: T) {
 
   const set = (value: T) => {
     rendering.state[index] = value;
-    app.update(rendering.element as JSX.Element, rendering);
+    app.render(rendering.element!, rendering);
   };
 
   rendering.stateIndex++;
@@ -289,7 +259,7 @@ export function useReducer<S, A>(reducer: (state: S, action: A) => S, initialVal
 
   const dispatch = (action: A) => {
     rendering.state[index] = reducer(state, action);
-    app.update(rendering.element!, rendering);
+    app.render(rendering.element!, rendering);
   };
 
   // bump state index
@@ -316,17 +286,14 @@ type Prettify<T> = {
 } & {};
 
 type Jinx = {
-  index: number;
-  target: Element;
-  _inProgress?: RenderContext;
-  frames: RenderContext[];
-  render: (element: Renderable | Renderable[]) => RenderContext;
-  update: (element: Renderable | Renderable[], previous: RenderContext) => RenderContext;
-  setCurrent: (frame: RenderContext) => void;
-  getCurrent: () => RenderContext | undefined;
+  root: Element;
+  currentRender?: Render;
+  render: (element: Renderable | Renderable[], previous?: Render) => void;
+  setCurrent: (frame: Render) => void;
+  getCurrent: () => Render | undefined;
 };
 
-interface RenderContext<S = any> {
+interface Render<S = any> {
   _tag?: string;
   _type?: "children" | "boolean" | "text" | "html" | "function";
   jinx: Jinx;
@@ -335,9 +302,9 @@ interface RenderContext<S = any> {
   dom?: (HTMLElement | Text)[];
   stateIndex: 0;
   state: S[];
-  rendered?: RenderContext<S>[];
-  previous?: RenderContext<S>;
-  parent?: RenderContext<S>;
+  rendered?: Render<S>[];
+  previous?: Render<S>;
+  parent?: Render<S>;
 }
 
 type Renderable = JSX.Element | string | number | boolean;
