@@ -16,27 +16,25 @@ export function createRoot(root: HTMLElement) {
     root,
     render(element, previous) {
       currentApp = jinx;
-      const rendering: Render = {
-        jinx,
+      const context: RenderContext = {
         element,
         previous,
         target: previous?.target ?? root,
         stateIndex: 0,
         state: [],
       };
-      const t0 = performance.now();
-      const rendered = render(element, rendering);
 
+      const t0 = performance.now();
+      const rendered = renderElement(element, context);
       if (previous == null) {
         for (const output of rendered.dom ?? []) {
           root.append(output);
         }
       }
-
       const t1 = performance.now();
       console.log(`render: ${t1 - t0} ms`);
     },
-    setCurrent(rendering: Render) {
+    setCurrent(rendering: RenderContext) {
       jinx.currentRender = rendering;
     },
     getCurrent() {
@@ -46,10 +44,10 @@ export function createRoot(root: HTMLElement) {
   return jinx;
 }
 
-function render(element: Renderable | Renderable[], context: Render) {
-  let { jinx, target, previous } = context;
-  jinx.setCurrent(context);
+function renderElement(element: Renderable | Renderable[], context: RenderContext) {
+  getCurrentApp().setCurrent(context);
 
+  let { target, previous } = context;
   context.element = element;
   context.dom = [];
   context.rendered = [];
@@ -76,14 +74,11 @@ function render(element: Renderable | Renderable[], context: Render) {
   if (typeof element === "boolean") {
     // not rendered
     return context;
-  }
-
-  // children
-  if (Array.isArray(element)) {
+  } else if (Array.isArray(element)) {
+    // children
     const _children = element.filter((element) => typeof element !== "boolean").flat();
     for (const [i, child] of _children?.entries()) {
-      const _rendered = render(child, {
-        jinx,
+      const _rendered = renderElement(child, {
         parent: context,
         target,
         previous: previous?.rendered?.[i],
@@ -108,10 +103,8 @@ function render(element: Renderable | Renderable[], context: Render) {
     }
 
     return context;
-  }
-
-  // text
-  if (typeof element === "string" || typeof element === "number") {
+  } else if (typeof element === "string" || typeof element === "number") {
+    // text
     const text = element.toString();
     const previousNode = previous?.dom?.[0];
     const wasText = previousNode != null && previousNode.nodeName.toLowerCase() === "#text";
@@ -129,10 +122,8 @@ function render(element: Renderable | Renderable[], context: Render) {
     context.dom.push(textNode);
 
     return context;
-  }
-
-  // html
-  if (typeof element.tag === "string") {
+  } else if (typeof element.tag === "string") {
+    // html
     const previousDom = previous?.dom?.[0];
     let htmlElement: HTMLElement;
 
@@ -177,8 +168,7 @@ function render(element: Renderable | Renderable[], context: Render) {
 
     // render children
     if (element.children) {
-      const _rendered = render(element.children.flat(), {
-        jinx,
+      const _rendered = renderElement(element.children, {
         parent: context,
         target,
         previous: previous?.rendered?.[0],
@@ -186,25 +176,19 @@ function render(element: Renderable | Renderable[], context: Render) {
         state: [],
       });
       context.rendered.push(_rendered);
-      const _domNodes = context.rendered.map((render) => render.dom ?? []).flat() ?? [];
-      htmlElement.append(..._domNodes);
+      const dom = _rendered.dom ?? [];
+      htmlElement.append(...dom);
     }
 
     return context;
-  }
-
-  // function
-  if (typeof element.tag === "function") {
+  } else if (typeof element.tag === "function") {
+    // function
     context.state = previous?.state ?? [];
     context.stateIndex = 0;
+    element.props.children = element.children;
 
-    const props = {
-      ...element.props,
-      children: element.children,
-    };
-    const _element = element.tag(props);
-    const _rendered = render(_element, {
-      jinx,
+    const _element = element.tag(element.props);
+    const _rendered = renderElement(_element, {
       parent: context,
       target,
       previous: previous?.rendered?.[0],
@@ -212,58 +196,58 @@ function render(element: Renderable | Renderable[], context: Render) {
       state: [],
     });
     context.rendered.push(_rendered);
+    const dom = _rendered.dom ?? [];
+    context.dom.push(...dom);
 
-    const _domNodes = _rendered.dom ?? [];
-    context.dom.push(..._domNodes);
     return context;
+  } else {
+    throw Error("You've reached a dead end...");
   }
-
-  throw Error("You've reached a dead end...");
 }
 
 export function useState<T>(initialValue: T) {
   const app = getCurrentApp();
-  const rendering = app.getCurrent();
-  if (rendering == null) {
+  const context = app.getCurrent();
+  if (context == null) {
     throw Error("What the heck am I supposed to do now????");
   }
 
-  let index = rendering.stateIndex;
-  let state = rendering.state[index];
+  let index = context.stateIndex;
+  let state = context.state[index];
   if (state == null) {
-    state = rendering.state[index] = initialValue;
+    state = context.state[index] = initialValue;
   }
 
   const set = (value: T) => {
-    rendering.state[index] = value;
-    app.render(rendering.element!, rendering);
+    context.state[index] = value;
+    app.render(context.element!, context);
   };
 
-  rendering.stateIndex++;
+  context.stateIndex++;
 
   return [state, set] as [T, (value: T) => void];
 }
 
 export function useReducer<S, A>(reducer: (state: S, action: A) => S, initialValue: S) {
   const app = getCurrentApp();
-  const rendering = app.getCurrent();
-  if (rendering == null) {
+  const context = app.getCurrent();
+  if (context == null) {
     throw Error("What the heck am I supposed to do now????");
   }
 
-  let index = rendering.stateIndex;
-  let state = rendering.state[index];
+  let index = context.stateIndex;
+  let state = context.state[index];
   if (state == null) {
-    state = rendering.state[index] = initialValue;
+    state = context.state[index] = initialValue;
   }
 
   const dispatch = (action: A) => {
-    rendering.state[index] = reducer(state, action);
-    app.render(rendering.element!, rendering);
+    context.state[index] = reducer(state, action);
+    app.render(context.element!, context);
   };
 
   // bump state index
-  rendering.stateIndex++;
+  context.stateIndex++;
 
   return [state, dispatch] as [S, typeof dispatch];
 }
@@ -287,24 +271,23 @@ type Prettify<T> = {
 
 type Jinx = {
   root: Element;
-  currentRender?: Render;
-  render: (element: Renderable | Renderable[], previous?: Render) => void;
-  setCurrent: (frame: Render) => void;
-  getCurrent: () => Render | undefined;
+  currentRender?: RenderContext;
+  render: (element: Renderable | Renderable[], previous?: RenderContext) => void;
+  setCurrent: (frame: RenderContext) => void;
+  getCurrent: () => RenderContext | undefined;
 };
 
-interface Render<S = any> {
+interface RenderContext<S = any> {
   _tag?: string;
   _type?: "children" | "boolean" | "text" | "html" | "function";
-  jinx: Jinx;
   target: Element;
   element?: Renderable | Renderable[];
   dom?: (HTMLElement | Text)[];
   stateIndex: 0;
   state: S[];
-  rendered?: Render<S>[];
-  previous?: Render<S>;
-  parent?: Render<S>;
+  rendered?: RenderContext<S>[];
+  previous?: RenderContext<S>;
+  parent?: RenderContext<S>;
 }
 
 type Renderable = JSX.Element | string | number | boolean;
