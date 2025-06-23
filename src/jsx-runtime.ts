@@ -14,27 +14,202 @@ export function createRoot(root: HTMLElement) {
 
   const jinx: Jinx = {
     root,
+    cache: new Map(),
     render(element, previous) {
       currentApp = jinx;
-      const context: RenderContext = {
-        element,
-        previous,
-        target: previous?.target ?? root,
-        stateIndex: 0,
-        state: [],
-      };
 
       const t0 = performance.now();
-      const rendered = renderElement(element, context);
-      if (previous == null) {
-        for (const output of rendered.dom ?? []) {
-          root.append(output);
+      const rendered: Rendered[] = [];
+      const stack: Rendered[] = [{ status: "in-progress", element, output: [], previous }];
+      while (stack.length > 0) {
+        let current = stack[stack.length - 1] as (typeof stack)[number];
+        let { element, previous, status } = current;
+
+        if (typeof element === "boolean") {
+          stack.pop();
+          continue;
+        } else if (Array.isArray(element)) {
+          stack.pop();
+          stack.push(
+            ...element.flat().map((child, i) => ({
+              status: "in-progress" as "in-progress",
+              element: child,
+              output: [],
+              previous: previous?.rendered?.[i],
+            }))
+          );
+          continue;
+        } else if (typeof element === "object" && element.tag === Fragment && status === "in-progress") {
+          // fragment
+          element.props.children = element.children;
+          stack.push(
+            ...element.children.flat().map((child, i) => ({
+              status: "in-progress",
+              element: child,
+              output: [],
+              previous: previous?.rendered?.[i],
+            }))
+          );
+          current.status = "waiting";
+          continue;
+        } else if (typeof element === "object" && typeof element.tag === "function" && status === "in-progress") {
+          // function
+          const state: State = previous?.state ?? {
+            values: [],
+            index: 0,
+          };
+          current.state = state;
+          jinx.setCurrent(current);
+
+          element.props.children = element.children;
+          const jsx = element.tag(element.props);
+          current.state.index = 0;
+
+          stack.push({
+            status: "in-progress",
+            element: jsx,
+            output: [],
+            previous: previous?.rendered?.[0],
+          });
+          current.status = "waiting";
+          continue;
+        } else if (typeof element === "object" && "children" in element && status === "in-progress") {
+          stack.push(
+            ...element.children.flat().map((child, i) => ({
+              status: "in-progress",
+              element: child,
+              output: [],
+              previous: previous?.rendered?.[i],
+            }))
+          );
+          current.status = "waiting";
+          continue;
+        }
+
+        // pop!
+        stack.pop();
+
+        if (typeof element === "string" || typeof element === "number") {
+          // text
+          const text = element.toString();
+          const previousNode = previous?.output?.[0];
+          const wasText = previousNode != null && previousNode.nodeName.toLowerCase() === "#text";
+
+          let textNode;
+          if (wasText) {
+            textNode = previousNode as Text;
+            textNode.textContent = text;
+          } else if (previousNode != null && !wasText) {
+            textNode = document.createTextNode(text);
+            previousNode.replaceWith(textNode);
+          } else {
+            textNode = document.createTextNode(text);
+          }
+
+          current.output.push(textNode);
+          rendered.push(current);
+          continue;
+        } else if (typeof element.tag === "string") {
+          // html
+          const previousDom = previous?.output[0];
+          let htmlElement: HTMLElement;
+
+          const isDifferent = previousDom != null && previousDom.nodeName.toLowerCase() !== element.tag;
+
+          if (isDifferent) {
+            htmlElement = document.createElement(element.tag);
+            previousDom.replaceWith(htmlElement);
+          } else if (previousDom == null) {
+            htmlElement = document.createElement(element.tag);
+          } else {
+            htmlElement = previousDom as HTMLElement;
+          }
+          current.output.push(htmlElement);
+
+          let previousProps: Record<string, unknown> | undefined;
+          if (!Array.isArray(previous?.element) && typeof previous?.element === "object") {
+            previousProps = previous.element.props;
+            for (const [prop, value] of Object.entries(previous?.element.props ?? {})) {
+              htmlElement.setAttribute(prop, "");
+            }
+          }
+
+          const currentProps = element.props ?? {};
+          for (const [prop, value] of Object.entries(currentProps)) {
+            const last = previousProps?.[prop];
+            const isEvent = prop.startsWith("on") && prop.substring(2).toLowerCase() in htmlElement;
+
+            if (isEvent) {
+              const eventName = prop.substring(2).toLowerCase() as keyof ElementEventMap;
+              htmlElement.removeEventListener(eventName, last as EventListenerOrEventListenerObject);
+              htmlElement.addEventListener(eventName, value as EventListenerOrEventListenerObject);
+            } else if (prop === "style" && value != null && typeof value === "object") {
+              for (const [styleProps, styleValue] of Object.entries(value)) {
+                htmlElement.style.setProperty(styleProps, styleValue);
+              }
+            } else {
+              htmlElement.setAttribute(prop, value as string);
+            }
+          }
+
+          // eat children!
+          let i = element.children?.length ?? 0;
+          current.rendered = [];
+          while (i > 0 && rendered.length > 0) {
+            const renderedChild = rendered.pop();
+            if (renderedChild == null) {
+              debugger;
+              throw Error("wtf");
+            }
+            current.rendered.push(renderedChild);
+            htmlElement.append(...renderedChild.output);
+            i--;
+          }
+
+          rendered.push(current);
+          continue;
+        } else if (element.tag === Fragment) {
+          // eat children!
+          let i = element.children?.length ?? 0;
+          current.rendered = [];
+          while (i > 0 && rendered.length > 0) {
+            const renderedChild = rendered.pop();
+            if (renderedChild == null) {
+              debugger;
+              throw Error("wtf");
+            }
+            current.rendered.push(renderedChild);
+            current.output.push(...renderedChild.output);
+            i--;
+          }
+          rendered.push(current);
+        } else if (typeof element.tag === "function") {
+          const renderedChild = rendered.pop();
+          current.rendered = [];
+          if (renderedChild == null) {
+            debugger;
+            throw Error("wtf");
+          }
+          current.rendered.push(renderedChild);
+          current.output.push(...renderedChild.output);
+          rendered.push(current);
+          continue;
+        } else {
+          debugger;
+          throw Error("You've reached a dead end...");
         }
       }
+
+      let render = rendered.pop();
+      while (render != null && previous == null) {
+        root.append(...render.output);
+        render = rendered.pop();
+      }
+
       const t1 = performance.now();
       console.log(`render: ${t1 - t0} ms`);
     },
-    setCurrent(rendering: RenderContext) {
+    setCurrent(rendering: Rendered) {
       jinx.currentRender = rendering;
     },
     getCurrent() {
@@ -44,212 +219,52 @@ export function createRoot(root: HTMLElement) {
   return jinx;
 }
 
-function renderElement(element: Renderable | Renderable[], context: RenderContext) {
-  getCurrentApp().setCurrent(context);
-
-  let { target, previous } = context;
-  context.element = element;
-  context.dom = [];
-  context.rendered = [];
-
-  if (import.meta.env.MODE === "development") {
-    if (Array.isArray(element)) {
-      context._type = "children";
-      context._tag = `[]:${element.length.toString()}`;
-    } else if (typeof element === "boolean") {
-      context._type = "boolean";
-      context._tag = element.toString();
-    } else if (typeof element === "string" || typeof element === "number") {
-      context._type = "text";
-      context._tag = element.toString();
-    } else if (typeof element.tag === "string") {
-      context._type = "html";
-      context._tag = element.tag;
-    } else if (typeof element.tag === "function") {
-      context._type = "function";
-      context._tag = element.tag.name;
-    }
-  }
-
-  if (typeof element === "boolean") {
-    // not rendered
-    return context;
-  } else if (Array.isArray(element)) {
-    // children
-    const _children = element.filter((element) => typeof element !== "boolean").flat();
-    for (const [i, child] of _children?.entries()) {
-      const _rendered = renderElement(child, {
-        parent: context,
-        target,
-        previous: previous?.rendered?.[i],
-        stateIndex: 0,
-        state: [],
-      });
-      context.dom.push(...(_rendered.dom ?? []));
-      context.rendered.push(_rendered);
-    }
-
-    // remove or reattach previous children
-    if (previous != null && previous.dom) {
-      const cull = previous.dom.length - (previous.dom.length - context.dom.length);
-      for (let i = cull; i < previous.dom.length; i++) {
-        previous.dom[i].remove();
-      }
-
-      const attach = context.dom.length - (context.dom.length - previous.dom.length);
-      for (let i = attach; i < context.dom.length; i++) {
-        target.append(context.dom[i]);
-      }
-    }
-
-    return context;
-  } else if (typeof element === "string" || typeof element === "number") {
-    // text
-    const text = element.toString();
-    const previousNode = previous?.dom?.[0];
-    const wasText = previousNode != null && previousNode.nodeName.toLowerCase() === "#text";
-
-    let textNode;
-    if (wasText) {
-      textNode = previousNode as Text;
-      textNode.textContent = text;
-    } else if (previousNode != null && !wasText) {
-      textNode = document.createTextNode(text);
-      previousNode.replaceWith(textNode);
-    } else {
-      textNode = document.createTextNode(text);
-    }
-    context.dom.push(textNode);
-
-    return context;
-  } else if (typeof element.tag === "string") {
-    // html
-    const previousDom = previous?.dom?.[0];
-    let htmlElement: HTMLElement;
-
-    const isDifferent = previousDom != null && previousDom.nodeName.toLowerCase() !== element.tag;
-
-    if (isDifferent) {
-      htmlElement = document.createElement(element.tag);
-      previousDom.replaceWith(htmlElement);
-    } else if (previousDom == null) {
-      htmlElement = document.createElement(element.tag);
-    } else {
-      htmlElement = previousDom as HTMLElement;
-    }
-
-    context.dom.push(htmlElement);
-
-    let previousProps: Record<string, unknown> | undefined;
-    if (!Array.isArray(previous?.element) && typeof previous?.element === "object") {
-      previousProps = previous.element.props;
-      for (const [prop, value] of Object.entries(previous?.element.props ?? {})) {
-        htmlElement.setAttribute(prop, "");
-      }
-    }
-
-    const currentProps = element.props ?? {};
-    for (const [prop, value] of Object.entries(currentProps)) {
-      const last = previousProps?.[prop];
-      const isEvent = prop.startsWith("on") && prop.substring(2).toLowerCase() in htmlElement;
-
-      if (isEvent) {
-        const eventName = prop.substring(2).toLowerCase() as keyof ElementEventMap;
-        htmlElement.removeEventListener(eventName, last as EventListenerOrEventListenerObject);
-        htmlElement.addEventListener(eventName, value as EventListenerOrEventListenerObject);
-      } else if (prop === "style" && value != null && typeof value === "object") {
-        for (const [styleProps, styleValue] of Object.entries(value)) {
-          htmlElement.style.setProperty(styleProps, styleValue);
-        }
-      } else {
-        htmlElement.setAttribute(prop, value as string);
-      }
-    }
-
-    // render children
-    if (element.children) {
-      const _rendered = renderElement(element.children, {
-        parent: context,
-        target,
-        previous: previous?.rendered?.[0],
-        stateIndex: 0,
-        state: [],
-      });
-      context.rendered.push(_rendered);
-      const dom = _rendered.dom ?? [];
-      htmlElement.append(...dom);
-    }
-
-    return context;
-  } else if (typeof element.tag === "function") {
-    // function
-    context.state = previous?.state ?? [];
-    context.stateIndex = 0;
-    element.props.children = element.children;
-
-    const _element = element.tag(element.props);
-    const _rendered = renderElement(_element, {
-      parent: context,
-      target,
-      previous: previous?.rendered?.[0],
-      stateIndex: 0,
-      state: [],
-    });
-    context.rendered.push(_rendered);
-    const dom = _rendered.dom ?? [];
-    context.dom.push(...dom);
-
-    return context;
-  } else {
-    throw Error("You've reached a dead end...");
-  }
-}
-
 export function useState<T>(initialValue: T) {
   const app = getCurrentApp();
-  const context = app.getCurrent();
-  if (context == null) {
+  const render = app.getCurrent();
+  const { state, element } = render;
+  if (state == null || element == null) {
     throw Error("What the heck am I supposed to do now????");
   }
 
-  let index = context.stateIndex;
-  let state = context.state[index];
-  if (state == null) {
-    state = context.state[index] = initialValue;
+  let index = state.index;
+  let value = state.values[index];
+  if (value == null) {
+    value = state.values[index] = initialValue;
   }
 
   const set = (value: T) => {
-    context.state[index] = value;
-    app.render(context.element!, context);
+    state.values[index] = value;
+    app.render(element, render);
   };
 
-  context.stateIndex++;
+  state.index++;
 
-  return [state, set] as [T, (value: T) => void];
+  return [value, set] as [T, (value: T) => void];
 }
 
 export function useReducer<S, A>(reducer: (state: S, action: A) => S, initialValue: S) {
   const app = getCurrentApp();
-  const context = app.getCurrent();
-  if (context == null) {
+  const render = app.getCurrent();
+  const { state, element } = render ?? {};
+  if (state == null || element == null) {
     throw Error("What the heck am I supposed to do now????");
   }
 
-  let index = context.stateIndex;
-  let state = context.state[index];
-  if (state == null) {
-    state = context.state[index] = initialValue;
+  let index = state.index;
+  let value = state.values[index];
+  if (value == null) {
+    value = state.values[index] = initialValue;
   }
 
   const dispatch = (action: A) => {
-    context.state[index] = reducer(state, action);
-    app.render(context.element!, context);
+    state.values[index] = reducer(state, action);
+    app.render(element, render);
   };
 
-  // bump state index
-  context.stateIndex++;
+  state.index++;
 
-  return [state, dispatch] as [S, typeof dispatch];
+  return [value, dispatch] as [S, typeof dispatch];
 }
 
 export function jsx(tag: string | JSXFunction, props: any, ...children: Renderable[]): JSX.Element {
@@ -271,23 +286,26 @@ type Prettify<T> = {
 
 type Jinx = {
   root: Element;
-  currentRender?: RenderContext;
-  render: (element: Renderable | Renderable[], previous?: RenderContext) => void;
-  setCurrent: (frame: RenderContext) => void;
-  getCurrent: () => RenderContext | undefined;
+  cache: Map<string, Rendered>;
+  currentRender?: Rendered;
+  render: (element: Renderable | Renderable[], previous?: Rendered) => void;
+  setCurrent: (frame: Rendered) => void;
+  getCurrent: () => Rendered | undefined;
 };
 
-interface RenderContext<S = any> {
-  _tag?: string;
-  _type?: "children" | "boolean" | "text" | "html" | "function";
-  target: Element;
-  element?: Renderable | Renderable[];
-  dom?: (HTMLElement | Text)[];
-  stateIndex: 0;
-  state: S[];
-  rendered?: RenderContext<S>[];
-  previous?: RenderContext<S>;
-  parent?: RenderContext<S>;
+interface State<S = any> {
+  index: 0;
+  values: S[];
+}
+
+interface Rendered<S = any> {
+  element: Renderable | Renderable[];
+  status: "in-progress" | "waiting" | "done";
+  output: (HTMLElement | Text)[];
+  previous?: Rendered<S>;
+  children?: Renderable[];
+  rendered?: Rendered<S> | Rendered<S>[];
+  state?: State<S>;
 }
 
 type Renderable = JSX.Element | string | number | boolean;

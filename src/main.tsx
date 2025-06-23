@@ -6,10 +6,8 @@ function ChildrenTest({ prop1, prop2, children }: any) {
     <div>
       {children}
       <h5>
-        <>
-          <em>{prop1}</em>
-          <strong>{prop2}</strong>
-        </>
+        <em>{prop1}</em>
+        <strong>{prop2}</strong>
       </h5>
     </div>
   );
@@ -258,21 +256,24 @@ function FragmentTest() {
   );
 }
 
-createRoot(document.querySelector("#app")!).render([1, 2, 3, false, 4]);
-createRoot(document.querySelector("#app")!).render(<div>hi</div>);
-createRoot(document.querySelector("#app")!).render(
-  <>
-    <>yo yo</>
-  </>
-);
-createRoot(document.querySelector("#app")!).render([1, 2, 3, false, 4]);
-createRoot(document.querySelector("#app")!).render(
-  <ChildrenTest prop1="hi" prop2="bye">
-    i'm child
-  </ChildrenTest>
-);
-createRoot(document.querySelector("#app")!).render(<CountTest message="hi" />);
-createRoot(document.querySelector("#app")!).render(<SwitchElementsTest />);
-createRoot(document.querySelector("#app")!).render(<RowTest />);
-createRoot(document.querySelector("#app")!).render(<RouteTest />);
-createRoot(document.querySelector("#app")!).render(<FragmentTest />);
+// createRoot(document.querySelector("#app")!).render("hello");
+// createRoot(document.querySelector("#app")!).render(<h1>hello</h1>);
+// createRoot(document.querySelector("#app")!).render([1, 2, 3, false, 4]);
+// createRoot(document.querySelector("#app")!).render(
+//   <div>
+//     <h1>
+//       <em>hi</em>
+//       <strong>bye</strong>
+//     </h1>
+//   </div>
+// );
+// createRoot(document.querySelector("#app")!).render(
+//   <ChildrenTest prop1="hi" prop2="bye">
+//     i'm child
+//   </ChildrenTest>
+// );
+// createRoot(document.querySelector("#app")!).render(<CountTest message="hi" />);
+// createRoot(document.querySelector("#app")!).render(<SwitchElementsTest />);
+// createRoot(document.querySelector("#app")!).render(<RowTest />);
+// createRoot(document.querySelector("#app")!).render(<RouteTest />);
+// createRoot(document.querySelector("#app")!).render(<FragmentTest />);
