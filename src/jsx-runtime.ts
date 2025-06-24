@@ -15,12 +15,13 @@ export function createRoot(root: HTMLElement) {
   const jinx: Jinx = {
     root,
     cache: new Map(),
-    render(element, previous) {
+    render(element, target, previous) {
       currentApp = jinx;
 
+      target = target ?? root;
       const t0 = performance.now();
       const rendered: Rendered[] = [];
-      const stack: Rendered[] = [{ status: "in-progress", element, output: [], previous }];
+      const stack: Rendered[] = [{ status: "in-progress", element, output: [], previous, target }];
       while (stack.length > 0) {
         let current = stack[stack.length - 1] as (typeof stack)[number];
         let { element, previous, status } = current;
@@ -28,27 +29,33 @@ export function createRoot(root: HTMLElement) {
         if (typeof element === "boolean") {
           stack.pop();
           continue;
-        } else if (Array.isArray(element)) {
-          stack.pop();
+        } else if (Array.isArray(element) && status === "in-progress") {
           stack.push(
-            ...element.flat().map((child, i) => ({
-              status: "in-progress" as "in-progress",
-              element: child,
-              output: [],
-              previous: previous?.rendered?.[i],
-            }))
+            ...element
+              .filter((child) => child !== false)
+              .map((child, i) => ({
+                status: "in-progress",
+                element: child,
+                output: [],
+                target,
+                previous: previous?.rendered?.[i],
+              }))
           );
+          current.status = "waiting";
           continue;
         } else if (typeof element === "object" && element.tag === Fragment && status === "in-progress") {
           // fragment
           element.props.children = element.children;
           stack.push(
-            ...element.children.flat().map((child, i) => ({
-              status: "in-progress",
-              element: child,
-              output: [],
-              previous: previous?.rendered?.[i],
-            }))
+            ...element.children
+              .filter((child) => child !== false)
+              .map((child, i) => ({
+                status: "in-progress",
+                element: child,
+                output: [],
+                target,
+                previous: previous?.rendered?.[i],
+              }))
           );
           current.status = "waiting";
           continue;
@@ -61,7 +68,7 @@ export function createRoot(root: HTMLElement) {
           current.state = state;
           jinx.setCurrent(current);
 
-          element.props.children = element.children;
+          element.props.children = element.children.filter((child) => child !== false);
           const jsx = element.tag(element.props);
           current.state.index = 0;
 
@@ -69,18 +76,27 @@ export function createRoot(root: HTMLElement) {
             status: "in-progress",
             element: jsx,
             output: [],
+            target,
             previous: previous?.rendered?.[0],
           });
           current.status = "waiting";
           continue;
-        } else if (typeof element === "object" && "children" in element && status === "in-progress") {
+        } else if (
+          typeof element === "object" &&
+          "children" in element &&
+          element.children.length > 0 &&
+          status === "in-progress"
+        ) {
           stack.push(
-            ...element.children.flat().map((child, i) => ({
-              status: "in-progress",
-              element: child,
-              output: [],
-              previous: previous?.rendered?.[i],
-            }))
+            ...element.children
+              .filter((child) => child !== false)
+              .map((child, i) => ({
+                status: "in-progress",
+                element: child,
+                output: [],
+                target,
+                previous: previous?.rendered?.[i],
+              }))
           );
           current.status = "waiting";
           continue;
@@ -89,7 +105,34 @@ export function createRoot(root: HTMLElement) {
         // pop!
         stack.pop();
 
-        if (typeof element === "string" || typeof element === "number") {
+        // cleanup
+        if (previous?.rendered && previous.rendered.length > rendered.length) {
+          const start = previous.rendered.length - (previous.rendered.length - rendered.length);
+          for (let i = start; i < previous.rendered.length; i++) {
+            const rendered = previous.rendered[i];
+            for (const output of rendered.output) {
+              output.remove();
+            }
+          }
+        }
+
+        if (Array.isArray(element)) {
+          // eat children!
+          let i = element.length;
+          current.rendered = [];
+          while (i > 0 && rendered.length > 0) {
+            const renderedChild = rendered.pop();
+            if (renderedChild == null) {
+              debugger;
+              throw Error("wtf");
+            }
+            current.rendered.push(renderedChild);
+            current.output.push(...renderedChild.output);
+            i--;
+          }
+          rendered.push(current);
+          continue;
+        } else if (typeof element === "string" || typeof element === "number") {
           // text
           const text = element.toString();
           const previousNode = previous?.output?.[0];
@@ -201,8 +244,9 @@ export function createRoot(root: HTMLElement) {
       }
 
       let render = rendered.pop();
-      while (render != null && previous == null) {
-        root.append(...render.output);
+      const willAppend = previous == null || (previous.rendered && previous.rendered.length < rendered.length);
+      while (render != null && willAppend) {
+        target.append(...render.output);
         render = rendered.pop();
       }
 
@@ -222,8 +266,8 @@ export function createRoot(root: HTMLElement) {
 export function useState<T>(initialValue: T) {
   const app = getCurrentApp();
   const render = app.getCurrent();
-  const { state, element } = render;
-  if (state == null || element == null) {
+  const { state, element, target } = render;
+  if (state == null || element == null || target == null) {
     throw Error("What the heck am I supposed to do now????");
   }
 
@@ -235,7 +279,7 @@ export function useState<T>(initialValue: T) {
 
   const set = (value: T) => {
     state.values[index] = value;
-    app.render(element, render);
+    app.render(element, target, render);
   };
 
   state.index++;
@@ -246,8 +290,8 @@ export function useState<T>(initialValue: T) {
 export function useReducer<S, A>(reducer: (state: S, action: A) => S, initialValue: S) {
   const app = getCurrentApp();
   const render = app.getCurrent();
-  const { state, element } = render ?? {};
-  if (state == null || element == null) {
+  const { state, element, target } = render ?? {};
+  if (state == null || element == null || target == null) {
     throw Error("What the heck am I supposed to do now????");
   }
 
@@ -258,8 +302,8 @@ export function useReducer<S, A>(reducer: (state: S, action: A) => S, initialVal
   }
 
   const dispatch = (action: A) => {
-    state.values[index] = reducer(state, action);
-    app.render(element, render);
+    state.values[index] = reducer(state.values[index], action);
+    app.render(element, target, render);
   };
 
   state.index++;
@@ -288,7 +332,7 @@ type Jinx = {
   root: Element;
   cache: Map<string, Rendered>;
   currentRender?: Rendered;
-  render: (element: Renderable | Renderable[], previous?: Rendered) => void;
+  render: (element: Renderable | Renderable[], target?: HTMLElement, previous?: Rendered) => void;
   setCurrent: (frame: Rendered) => void;
   getCurrent: () => Rendered | undefined;
 };
@@ -300,6 +344,7 @@ interface State<S = any> {
 
 interface Rendered<S = any> {
   element: Renderable | Renderable[];
+  target: HTMLElement;
   status: "in-progress" | "waiting" | "done";
   output: (HTMLElement | Text)[];
   previous?: Rendered<S>;
