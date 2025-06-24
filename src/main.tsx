@@ -118,6 +118,8 @@ const listReducer = (state: typeof initialState, action: { type: string; id?: nu
   const { data, selected } = state;
 
   switch (action.type) {
+    case "RUN_10":
+      return { data: buildData(10), selected: 0 };
     case "RUN":
       return { data: buildData(1000), selected: 0 };
     case "RUN_LOTS":
@@ -139,12 +141,10 @@ const listReducer = (state: typeof initialState, action: { type: string; id?: nu
       return { data: [], selected: 0 };
     case "SWAP_ROWS":
       const newdata = [...data];
-      if (data.length > 998) {
-        const d1 = newdata[1];
-        const d998 = newdata[998];
-        newdata[1] = d998;
-        newdata[998] = d1;
-      }
+      const d1 = newdata[0];
+      const d998 = newdata[data.length - 1];
+      newdata[0] = d998;
+      newdata[data.length - 1] = d1;
       return { data: newdata, selected };
     case "REMOVE": {
       const idx = data.findIndex((d) => d.id === action.id);
@@ -168,29 +168,29 @@ function Row({
   dispatch: (action: Parameters<typeof listReducer>[1]) => void;
 }) {
   return (
-    <tr class={selected ? "danger" : ""}>
+    <tr style={selected ? "color: red;" : ""}>
       <td>{item.id}</td>
       <td>
         <a onClick={() => dispatch({ type: "SELECT", id: item.id })}>{item.label}</a>
       </td>
       <td>
         <a onClick={() => dispatch({ type: "REMOVE", id: item.id })}>
-          <span aria-hidden="true" />
+          <span aria-hidden="true">Remove</span>
         </a>
       </td>
-      <td />
+      {/* <td /> */}
     </tr>
   );
 }
 
 const RowTest = () => {
-  const [index, setIndex] = useState("children-test");
   const [{ data, selected }, dispatch] = useReducer(listReducer, initialState);
 
   return (
-    <div>
-      <div>
+    <div id="1">
+      <div id="2">
         <div id="buttons" style="display: flex; gap: 2px;">
+          <button onClick={() => dispatch({ type: "RUN_10" })}>Create 10 rows</button>
           <button onClick={() => dispatch({ type: "RUN" })}>Create 1,000 rows</button>
           <button onClick={() => dispatch({ type: "RUN_LOTS" })}>Create 10,000 rows</button>
           <button onClick={() => dispatch({ type: "ADD" })}>Append 1,000 rows</button>
@@ -198,7 +198,7 @@ const RowTest = () => {
           <button onClick={() => dispatch({ type: "SWAP_ROWS" })}>Swap Rows</button>
           <button onClick={() => dispatch({ type: "CLEAR" })}>Clear</button>
         </div>
-        <div>
+        <div id="3">
           <table>
             <tbody>
               {data.map((item) => (
@@ -206,7 +206,7 @@ const RowTest = () => {
               ))}
             </tbody>
           </table>
-          <div />
+          {/* <div /> */}
         </div>
       </div>
     </div>
@@ -276,4 +276,4 @@ function FragmentTest() {
 // createRoot(document.querySelector("#app")!).render(<SwitchElementsTest />);
 // createRoot(document.querySelector("#app")!).render(<RowTest />);
 // createRoot(document.querySelector("#app")!).render(<RouteTest />);
-// createRoot(document.querySelector("#app")!).render(<FragmentTest />);
+createRoot(document.querySelector("#app")!).render(<FragmentTest />);
