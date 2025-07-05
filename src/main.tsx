@@ -3,7 +3,7 @@ import "./style.css";
 
 function ChildrenTest({ prop1, prop2, children }: any) {
   return (
-    <div>
+    <div id="1">
       {children}
       <h5>
         <em>{prop1}</em>
@@ -178,14 +178,12 @@ function Row({
           <span aria-hidden="true">Remove</span>
         </a>
       </td>
-      {/* <td /> */}
     </tr>
   );
 }
 
 const RowTest = () => {
   const [{ data, selected }, dispatch] = useReducer(listReducer, initialState);
-
   return (
     <div id="1">
       <div id="2">
@@ -236,23 +234,20 @@ function RouteTest() {
   );
 }
 
-function FragmentTest() {
+function ChildrenTypeChange() {
   const [toggle, setToggle] = useState(true);
+  const onClick = () => setToggle(!toggle);
+
   return toggle ? (
     <>
-      <small onClick={() => setToggle(!toggle)}>1</small>
-      <div style={{ color: "green" }}>2</div>
-      <h1 style="color: green;">3</h1>
-      <h2 style="color: blue;">4</h2>
+      <button onClick={onClick}>Fragment</button>
+      <div>
+        hi <span>2</span> <div>wat</div>
+      </div>
+      <>test</>
     </>
   ) : (
-    <>
-      maybe
-      <small style="color: blue; font-size: 50px;" onClick={() => setToggle(!toggle)}>
-        small
-      </small>
-      <em>em</em>
-    </>
+    <button onClick={onClick}>Button</button>
   );
 }
 
@@ -272,8 +267,56 @@ function FragmentTest() {
 //     i'm child
 //   </ChildrenTest>
 // );
-// createRoot(document.querySelector("#app")!).render(<CountTest message="hi" />);
 // createRoot(document.querySelector("#app")!).render(<SwitchElementsTest />);
-// createRoot(document.querySelector("#app")!).render(<RowTest />);
 // createRoot(document.querySelector("#app")!).render(<RouteTest />);
-createRoot(document.querySelector("#app")!).render(<FragmentTest />);
+
+// createRoot(document.querySelector("#app")!).render(
+//   jsx(function asdf() {
+//     const [toggle, setToggle] = useState(true);
+//     return (
+//       <>
+//         <button
+//           onClick={() => {
+//             console.log("hi!");
+//             setToggle(!toggle);
+//           }}
+//         >
+//           switch
+//         </button>
+//         <div id="please">{toggle ? "hi" : "bye"}</div>
+//       </>
+//     );
+//   })
+// );
+
+// createRoot(document.querySelector("#app")!).render(<CountTest message="hi" />);
+// createRoot(document.querySelector("#app")!).render(<RowTest />);
+createRoot(document.querySelector("#app")!).render(<ChildrenTypeChange />);
+
+// createRoot(document.querySelector("#app")!).render(
+//   jsx(function test() {
+//     const [data, setData] = useState<string[]>([]);
+//     return (
+//       <>
+//         <button
+//           onClick={() => {
+//             if (data.length === 0) {
+//               setData(["hi", "bye", "blue", "red"]);
+//             } else {
+//               setData([]);
+//             }
+//           }}
+//         >
+//           {data.length === 0 ? "show" : "hide"}
+//         </button>
+//         <ol id="list">
+//           {data.map((item, i) => (
+//             <li>{item}</li>
+//           ))}
+//           hi
+//           <hr />
+//         </ol>
+//       </>
+//     );
+//   })
+// );
