@@ -14,172 +14,179 @@ export function createRoot(root: HTMLElement) {
 
   const jinx: Jinx = {
     root,
-    render(node, target, previous) {
+    render(element, target, previous) {
       currentApp = jinx;
 
       target = target ?? root;
       const t0 = performance.now();
-      const rendered: RenderedNode[] = [];
-      const stack: ToRenderNode[] = [
-        {
-          node,
-          previous,
-          target,
-        },
-      ];
-
+      const renderRoot: RenderNode = {
+        element,
+        previous,
+        target,
+      };
+      const stack: RenderNode[] = [renderRoot];
       while (stack.length > 0) {
-        const current = stack.pop() as ToRenderNode;
-        const { node, target, previous } = current;
+        const current = stack.pop() as RenderNode;
+        const { element, target, previous, renderNodes } = current;
 
-        const type =
-          typeof node === "boolean"
+        const _type = (current._type =
+          typeof element === "boolean"
             ? "conditional"
-            : typeof node === "string" || typeof node === "number"
+            : typeof element === "string" || typeof element === "number"
             ? "text"
-            : Array.isArray(node)
+            : Array.isArray(element)
             ? "children"
-            : typeof node === "object" && typeof node.tag === "string"
+            : typeof element === "object" && typeof element.tag === "string"
             ? "html"
-            : typeof node === "object" && node.tag === Fragment
+            : typeof element === "object" && element.tag === Fragment
             ? "fragment"
-            : "function";
+            : "function");
 
-        let parent = target;
-        let children: JinxNode[] | undefined;
-        let output: Node | undefined;
-        if (typeof node === "boolean") {
+        const _name = (current._name =
+          typeof element === "boolean" || typeof element === "string" || typeof element === "number"
+            ? `"${element}"`
+            : Array.isArray(element)
+            ? `[${element.map((n) => n?.tag?.name ?? n?.tag ?? n).join(", ")}]`
+            : typeof element === "object" && typeof element.tag === "string"
+            ? `<${element.tag}>`
+            : typeof element === "object" && element.tag === Fragment
+            ? `<>${element.children?.map((n) => n?.tag?.name ?? n?.tag ?? n).join(", ")}</>`
+            : `<${element.tag?.name}{} />`);
+
+        if (renderNodes) {
+          current.childNodes = renderNodes.map((render) => render.node).filter((node): node is Node => node != null);
+          const previousNodes = previous?.childNodes;
+
+          const length = Math.max(current.childNodes.length, previousNodes?.length ?? 0);
+          let i = 0;
+          while (i < length) {
+            const child = current.childNodes?.[i];
+            if (child && current.node && current.node instanceof DocumentFragment && !target.contains(child)) {
+              current.node.appendChild(child);
+            } else if (child && current.node && current.node instanceof Element && !current.node.contains(child)) {
+              current.node.appendChild(child);
+            }
+
+            const previousChild = previousNodes?.[i];
+            if (previousChild && (child?.nodeType !== previousChild?.nodeType || (!child && previousChild))) {
+              if (previousChild instanceof DocumentFragment) {
+                const previousRenders = previous?.renderNodes?.[i];
+                for (const remove of previousRenders?.childNodes ?? []) {
+                  remove.parentNode?.removeChild(remove);
+                }
+              } else if (previousChild instanceof Element || previousChild instanceof Text) {
+                previousChild.remove();
+              }
+            }
+            i++;
+          }
+          continue;
+        }
+
+        let newTarget = target;
+        let children: JinxElement[] | undefined;
+        if (typeof element === "boolean") {
           // noop
-        } else if (typeof node === "string" || typeof node === "number") {
+          continue;
+        } else if (typeof element === "string" || typeof element === "number") {
           // text
-          const text = node.toString();
-
-          let textNode = previous?.output;
-          if (!textNode || textNode.textContent !== text) {
-            textNode = document.createTextNode(text);
+          if (previous?.node instanceof Text && element === previous?.element) {
+            current.node = previous.node;
+          } else if (previous?.node instanceof Text) {
+            const text = element.toString();
+            current.node = previous.node;
+            current.node.textContent = text;
+          } else {
+            const text = element.toString();
+            current.node = document.createTextNode(text);
+          }
+        } else if (Array.isArray(element)) {
+          current.node = document.createDocumentFragment();
+          children = element;
+          stack.push(current);
+        } else if (typeof element.tag === "string") {
+          // html
+          if (previous?.node instanceof HTMLElement && previous.node?.nodeName?.toLowerCase() === element.tag) {
+            current.node = previous.node;
+          } else if (previous?.node instanceof HTMLElement) {
+            current.node = document.createElement(element.tag);
+            while (previous.node.childNodes.length) {
+              current.node.appendChild(previous.node.firstChild!);
+            }
+            previous.node.replaceWith(current.node);
+          } else {
+            current.node = document.createElement(element.tag);
           }
 
-          output = textNode;
-        } else if (Array.isArray(node)) {
-          children = node;
-        } else if (node.tag === Fragment) {
-          children = node.children;
-        } else if (typeof node.tag === "function") {
-          // functions
+          newTarget = current.node;
+          children = element.children;
+          stack.push(current);
+
+          // fix props
+          const html = current.node as HTMLElement;
+          const previousProps = (previous?.element as JSX.Element)?.props;
+          for (const [prop, value] of Object.entries(previousProps ?? {})) {
+            const isEvent = prop.startsWith("on") && prop.substring(2).toLowerCase() in html;
+            if (isEvent) {
+              const eventName = prop.substring(2).toLowerCase() as keyof ElementEventMap;
+              html.removeEventListener(eventName, value as EventListenerOrEventListenerObject);
+            } else {
+              html.removeAttribute(prop);
+            }
+          }
+
+          const currentProps = element.props ?? {};
+          for (const [prop, value] of Object.entries(currentProps)) {
+            const isEvent = prop.startsWith("on") && prop.substring(2).toLowerCase() in html;
+            if (isEvent) {
+              const eventName = prop.substring(2).toLowerCase() as keyof ElementEventMap;
+              html.addEventListener(eventName, value as EventListenerOrEventListenerObject);
+            } else if (prop === "style" && value != null && typeof value === "object") {
+              for (const [styleProps, styleValue] of Object.entries(value)) {
+                html.style.setProperty(styleProps, styleValue);
+              }
+            } else {
+              html.setAttribute(prop, value as string);
+            }
+          }
+        } else if (typeof element.tag === "function") {
+          current.node = document.createDocumentFragment();
+          jinx.setCurrent(current);
+
           const state: State = previous?.state ?? {
             values: [],
             index: 0,
           };
           current.state = state;
-          jinx.setCurrent(current);
-
-          node.props.children = node.children;
-          const jsx = node.tag(node.props);
+          element.props.children = element.children;
+          const child = element.tag(element.props);
           current.state.index = 0;
-          children = [jsx];
-        } else if (typeof node.tag === "string") {
-          // html
-          const previousNode = previous?.output;
-          let htmlElement: HTMLElement | undefined =
-            previousNode instanceof HTMLElement && previousNode?.nodeName?.toLowerCase() === node.tag
-              ? previousNode
-              : undefined;
-          if (htmlElement == null) {
-            htmlElement = document.createElement(node.tag);
-          }
-
-          // TODO: Only update/remove/add props as needed
-          if (previousNode) {
-            const previousProps = (previous?.node as JSX.Element).props;
-            for (const [prop, value] of Object.entries(previousProps ?? {})) {
-              const isEvent = prop.startsWith("on") && prop.substring(2).toLowerCase() in htmlElement;
-              if (isEvent) {
-                const eventName = prop.substring(2).toLowerCase() as keyof ElementEventMap;
-                htmlElement.removeEventListener(eventName, value as EventListenerOrEventListenerObject);
-              } else {
-                htmlElement.removeAttribute(prop);
-              }
-            }
-          }
-
-          const currentProps = node.props ?? {};
-          for (const [prop, value] of Object.entries(currentProps)) {
-            const isEvent = prop.startsWith("on") && prop.substring(2).toLowerCase() in htmlElement;
-            if (isEvent) {
-              const eventName = prop.substring(2).toLowerCase() as keyof ElementEventMap;
-              // htmlElement.removeEventListener(eventName, last as EventListenerOrEventListenerObject);
-              htmlElement.addEventListener(eventName, value as EventListenerOrEventListenerObject);
-            } else if (prop === "style" && value != null && typeof value === "object") {
-              for (const [styleProps, styleValue] of Object.entries(value)) {
-                htmlElement.style.setProperty(styleProps, styleValue);
-              }
-            } else {
-              htmlElement.setAttribute(prop, value as string);
-            }
-          }
-
-          parent = htmlElement;
-          output = htmlElement;
-          children = node.children;
+          children = [child];
+          stack.push(current);
         }
 
         // children stuff
-        current.type = type;
-        current.output = output;
-        const renderedNode: RenderedNode = { ...current, childNodes: [], type, output };
-        if (children != null) {
-          current.childNodes = children.map(
-            (child, i) =>
-              ({
-                node: child,
-                previous: previous?.childNodes?.[i],
-                target: parent,
-              } as ToRenderNode)
-          );
-          renderedNode.childNodes.push(...current.childNodes);
-          stack.push(...renderedNode.childNodes);
+        if (current.renderNodes == null) {
+          current.renderNodes = [];
         }
 
-        rendered.push(renderedNode);
+        for (let i = 0; children && i < children.length; i++) {
+          const child = children![i];
+          const previousChild = previous?.renderNodes?.[i];
+
+          const childNode = {
+            element: child,
+            previous: previousChild,
+            parent: current,
+            target: newTarget,
+          };
+          current.renderNodes.push(childNode);
+          stack.push(childNode);
+        }
       }
 
-      while (rendered.length > 0) {
-        const render = rendered.pop() as RenderedNode;
-        const previous = render.previous;
-
-        if (render.type === "function") {
-          // debugger;
-        }
-
-        if (render.type === "html" || render.type === "text") {
-          const out = render.output;
-          const last = render.previous?.output;
-          if (previous && out && last && previous.type === render.type && previous.target === render.target) {
-            last.parentNode?.replaceChild(out, last);
-          } else if (out && !render.target.contains(out)) {
-            render.target.append(out);
-          } else {
-            // debugger;
-          }
-        } else {
-          // for (const child of render.childNodes as RenderedNode[]) {
-          //   render.output.push(child.output);
-          // }
-        }
-
-        // if (render.type !== previous?.type && previous?.output) {
-        //   for (const out of previous?.output) {
-        //     out.remove();
-        //   }
-        // }
-        // remove previous children
-        // const previousLength = previous?.renderedChildren?.length ?? 0;
-        // for (let i = previousLength; i > renderedChildren.length; i--) {
-        //   const previousChild = previous!.renderedChildren![i - 1];
-        //   for (const item of previousChild.output) {
-        //     item.remove();
-        //   }
-        // }
+      if (renderRoot.node instanceof Node && !renderRoot.target.contains(renderRoot.node)) {
+        renderRoot.target.appendChild(renderRoot.node);
       }
 
       const t1 = performance.now();
@@ -198,7 +205,7 @@ export function createRoot(root: HTMLElement) {
 export function useState<T>(initialValue: T) {
   const app = getCurrentApp();
   const render = app.getCurrent()!;
-  const { state, node, target } = render;
+  const { state, element: node, target } = render;
   if (state == null || node == null || target == null) {
     throw Error("What the heck am I supposed to do now????");
   }
@@ -211,7 +218,7 @@ export function useState<T>(initialValue: T) {
 
   const set = (value: T) => {
     state.values[index] = value;
-    app.render(node, target, render as RenderedNode);
+    app.render(node, target, render as RenderNode);
   };
 
   state.index++;
@@ -222,7 +229,7 @@ export function useState<T>(initialValue: T) {
 export function useReducer<S, A>(reducer: (state: S, action: A) => S, initialValue: S) {
   const app = getCurrentApp();
   const render = app.getCurrent();
-  const { state, node, target } = render ?? {};
+  const { state, element: node, target } = render ?? {};
   if (state == null || node == null || target == null) {
     throw Error("What the heck am I supposed to do now????");
   }
@@ -235,7 +242,7 @@ export function useReducer<S, A>(reducer: (state: S, action: A) => S, initialVal
 
   const dispatch = (action: A) => {
     state.values[index] = reducer(state.values[index], action);
-    app.render(node, target, render as RenderedNode);
+    app.render(node, target, render as RenderNode);
   };
 
   state.index++;
@@ -243,7 +250,7 @@ export function useReducer<S, A>(reducer: (state: S, action: A) => S, initialVal
   return [value, dispatch] as [S, typeof dispatch];
 }
 
-export function jsx(tag: string | JSXFunction, props: any, ...children: JinxNode[]): JSX.Element {
+export function jsx(tag: string | JSXFunction, props: any, ...children: JinxElement[]): JSX.Element {
   return {
     tag,
     props: props ?? {},
@@ -251,7 +258,7 @@ export function jsx(tag: string | JSXFunction, props: any, ...children: JinxNode
   };
 }
 
-export function Fragment(props: any) {
+export function Fragment(props: JSX.Element["props"] & { children: JinxElement }) {
   return props.children;
 }
 
@@ -262,10 +269,10 @@ type Prettify<T> = {
 
 type Jinx = {
   root: Element;
-  currentRender?: ToRenderNode;
-  render: (element: JinxNode, target?: HTMLElement, previous?: RenderedNode) => void;
-  setCurrent: (frame: ToRenderNode) => void;
-  getCurrent: () => ToRenderNode | undefined;
+  currentRender?: RenderNode;
+  render: (element: JinxElement, target?: Node, previous?: RenderNode) => void;
+  setCurrent: (frame: RenderNode) => void;
+  getCurrent: () => RenderNode | undefined;
 };
 
 interface State<S = any> {
@@ -273,28 +280,21 @@ interface State<S = any> {
   values: S[];
 }
 
-type ToRenderNode = {
-  node: JinxNode;
-  target: HTMLElement;
-  output?: Node;
-  previous?: RenderedNode;
-  childNodes?: ToRenderNode[];
+type RenderNode = {
+  element: JinxElement;
+  target: Node;
+  previous?: RenderNode;
+  parent?: RenderNode;
+  node?: Node;
+  childNodes?: Node[];
+  renderNodes?: RenderNode[];
   state?: State;
-  type?: "conditional" | "text" | "children" | "html" | "fragment" | "function";
+  _type?: "conditional" | "text" | "children" | "html" | "fragment" | "function";
+  _name?: string;
 };
 
-type RenderedNode = {
-  node: JinxNode;
-  output?: Node;
-  childNodes: ToRenderNode[];
-  target: HTMLElement;
-  type: "conditional" | "text" | "children" | "html" | "fragment" | "function";
-  previous?: RenderedNode;
-  state?: State;
-};
-
-type JinxNode = JSX.Element | string | number | boolean | JinxNode[];
-type JSXFunction = (props?: any & { children?: JinxNode[] }) => JSX.Element;
+type JinxElement = JSX.Element | string | number | boolean | JinxElement[];
+type JSXFunction = (props?: any & { children?: JinxElement[] }) => JSX.Element;
 
 type IntrinsicHTMLElementsMap = {
   [key in keyof HTMLElementTagNameMap]: Prettify<
@@ -317,7 +317,7 @@ declare global {
     type Element = {
       tag: string | JSXFunction;
       props: any;
-      children: JinxNode[];
+      children: JinxElement[];
     };
     type ElementType = keyof IntrinsicElements | JSXFunction;
 
