@@ -1,4 +1,4 @@
-import { createRoot, useReducer, useState } from "./jsx-runtime.ts";
+import { createRoot, Fragment, useReducer, useState } from "./jsx-runtime.ts";
 import "./style.css";
 
 function ChildrenTest({ prop1, prop2, children }: any) {
