@@ -221,7 +221,7 @@ function RouteTest() {
         <div id="0" style="display: flex; text-transform: uppercase;">
           <strong>0</strong>
           <h3 style="font-size: .5rem;">
-            I should be <em>REMOVED!!!!</em> on 0
+            I should be <em>REMOVED!!!!</em>
           </h3>
         </div>
       )}
@@ -234,26 +234,48 @@ function RouteTest() {
   );
 }
 
-function ChildrenTypeChange() {
-  const [toggle, setToggle] = useState(true);
-  const onClick = () => setToggle(!toggle);
+function SmallComponent() {
+  return <div style={{ border: "1px solid red", padding: "4px" }}>hi</div>;
+}
 
-  return toggle ? (
-    <>
-      <button onClick={onClick}>Fragment</button>
-      <div>
-        hi <span>2</span> <div>wat</div>
-      </div>
-      <>test</>
-    </>
-  ) : (
-    <button onClick={onClick}>Button</button>
+function ChildrenTypeChange() {
+  const [stateIndex, setStateIndex] = useState(0);
+  const onClick = () => setStateIndex((stateIndex + 1) % 6);
+
+  let element: any = <>fragment</>;
+  switch (stateIndex) {
+    case 1: {
+      element = <div>html</div>;
+      break;
+    }
+    case 2: {
+      element = "string";
+      break;
+    }
+    case 3: {
+      element = 1;
+      break;
+    }
+    case 4: {
+      element = <SmallComponent />;
+      break;
+    }
+    case 5: {
+      element = ["children ", 1, false];
+      break;
+    }
+  }
+  return (
+    <Fragment key="hi">
+      <button onClick={onClick}>Switch</button>
+      {element}
+    </Fragment>
   );
 }
 
 // createRoot(document.querySelector("#app")!).render("hello");
 // createRoot(document.querySelector("#app")!).render(<h1>hello</h1>);
-// createRoot(document.querySelector("#app")!).render([1, 2, 3, false, 4]);
+// createRoot(document.querySelector("#app")!).render([1, 2, 3, "boink", false, 4]);
 // createRoot(document.querySelector("#app")!).render(
 //   <div>
 //     <h1>
@@ -268,7 +290,6 @@ function ChildrenTypeChange() {
 //   </ChildrenTest>
 // );
 // createRoot(document.querySelector("#app")!).render(<SwitchElementsTest />);
-// createRoot(document.querySelector("#app")!).render(<RouteTest />);
 
 // createRoot(document.querySelector("#app")!).render(
 //   jsx(function asdf() {
@@ -291,32 +312,33 @@ function ChildrenTypeChange() {
 
 // createRoot(document.querySelector("#app")!).render(<CountTest message="hi" />);
 // createRoot(document.querySelector("#app")!).render(<RowTest />);
-createRoot(document.querySelector("#app")!).render(<ChildrenTypeChange />);
+// createRoot(document.querySelector("#app")!).render(<ChildrenTypeChange />);
 
-// createRoot(document.querySelector("#app")!).render(
-//   jsx(function test() {
-//     const [data, setData] = useState<string[]>([]);
-//     return (
-//       <>
-//         <button
-//           onClick={() => {
-//             if (data.length === 0) {
-//               setData(["hi", "bye", "blue", "red"]);
-//             } else {
-//               setData([]);
-//             }
-//           }}
-//         >
-//           {data.length === 0 ? "show" : "hide"}
-//         </button>
-//         <ol id="list">
-//           {data.map((item, i) => (
-//             <li>{item}</li>
-//           ))}
-//           hi
-//           <hr />
-//         </ol>
-//       </>
-//     );
-//   })
-// );
+createRoot(document.querySelector("#app")!).render(<RouteTest />);
+createRoot(document.querySelector("#app")!).render(
+  jsx(function test() {
+    const [data, setData] = useState<string[]>([]);
+    return (
+      <>
+        <button
+          onClick={() => {
+            if (data.length === 0) {
+              setData(["hi", "bye", "blue", "red"]);
+            } else {
+              setData([]);
+            }
+          }}
+        >
+          {data.length === 0 ? "show" : "hide"}
+        </button>
+        <ol id="list">
+          {data.map((item, i) => (
+            <li>{item}</li>
+          ))}
+          hi
+          <hr />
+        </ol>
+      </>
+    );
+  })
+);
