@@ -29,25 +29,25 @@ function CountTest({ message }: { message: string }) {
     </>
   );
 }
+
 function SwitchElementsTest() {
   const [toggle, setToggle] = useState(true);
 
-  const onClick = (e: MouseEvent) => {
-    console.log(e);
+  const onClick = () => {
     setToggle(!toggle);
   };
 
   return (
     <>
       <button onClick={onClick}>Switch!</button>
-      <div>{toggle ? <h1>left</h1> : <h2>right</h2>}</div>
-      <div id="switch">
-        {toggle && <small>up</small>}
-        {!toggle && <em>down</em>}
-      </div>
+      {toggle ? <div>1</div> : <div style="text-align: right">2</div>}
+      <hr />
+      {toggle && <small>up</small>}
+      {!toggle && <em>down</em>}
     </>
   );
 }
+
 const random = (max: number) => Math.round(Math.random() * 1000) % max;
 
 const A = [
@@ -125,16 +125,13 @@ const listReducer = (state: typeof initialState, action: { type: string; id?: nu
     case "RUN_LOTS":
       return { data: buildData(10000), selected: 0 };
     case "ADD":
-      return { data: data.concat(buildData(1000)), selected };
+      return { data: [...data, ...buildData(5)], selected };
     case "UPDATE": {
       const newData = data.slice(0);
-
       for (let i = 0; i < newData.length; i += 10) {
         const r = newData[i];
-
         newData[i] = { id: r.id, label: r.label + " !!!" };
       }
-
       return { data: newData, selected };
     }
     case "CLEAR":
@@ -148,7 +145,6 @@ const listReducer = (state: typeof initialState, action: { type: string; id?: nu
       return { data: newdata, selected };
     case "REMOVE": {
       const idx = data.findIndex((d) => d.id === action.id);
-
       return { data: [...data.slice(0, idx), ...data.slice(idx + 1)], selected };
     }
     case "SELECT":
@@ -168,46 +164,40 @@ function Row({
   dispatch: (action: Parameters<typeof listReducer>[1]) => void;
 }) {
   return (
-    <tr style={selected ? "color: red;" : ""}>
-      <td>{item.id}</td>
-      <td>
-        <a onClick={() => dispatch({ type: "SELECT", id: item.id })}>{item.label}</a>
-      </td>
-      <td>
-        <a onClick={() => dispatch({ type: "REMOVE", id: item.id })}>
-          <span aria-hidden="true">Remove</span>
-        </a>
-      </td>
-    </tr>
+    <div
+      style={{
+        display: "flex",
+        gap: "8px",
+        color: selected ? "red" : "",
+      }}
+    >
+      {item.id}
+      <a onClick={() => dispatch({ type: "SELECT", id: item.id })}>{item.label}</a>
+      <a onClick={() => dispatch({ type: "REMOVE", id: item.id })}>Remove</a>
+    </div>
   );
 }
 
 const RowTest = () => {
   const [{ data, selected }, dispatch] = useReducer(listReducer, initialState);
   return (
-    <div id="1">
-      <div id="2">
-        <div id="buttons" style="display: flex; gap: 2px;">
-          <button onClick={() => dispatch({ type: "RUN_10" })}>Create 10 rows</button>
-          <button onClick={() => dispatch({ type: "RUN" })}>Create 1,000 rows</button>
-          <button onClick={() => dispatch({ type: "RUN_LOTS" })}>Create 10,000 rows</button>
-          <button onClick={() => dispatch({ type: "ADD" })}>Append 1,000 rows</button>
-          <button onClick={() => dispatch({ type: "UPDATE" })}>Update every 10th row</button>
-          <button onClick={() => dispatch({ type: "SWAP_ROWS" })}>Swap Rows</button>
-          <button onClick={() => dispatch({ type: "CLEAR" })}>Clear</button>
-        </div>
-        <div id="3">
-          <table>
-            <tbody>
-              {data.map((item) => (
-                <Row item={item} selected={selected === item.id} dispatch={dispatch} />
-              ))}
-            </tbody>
-          </table>
-          {/* <div /> */}
-        </div>
+    <>
+      <div id="buttons" style="display: flex; gap: 2px;">
+        <button onClick={() => dispatch({ type: "RUN_10" })}>Create 10 rows</button>
+        <button onClick={() => dispatch({ type: "RUN" })}>Create 1,000 rows</button>
+        <button onClick={() => dispatch({ type: "RUN_LOTS" })}>Create 10,000 rows</button>
+        <button onClick={() => dispatch({ type: "ADD" })}>Append 5 rows</button>
+        <button onClick={() => dispatch({ type: "UPDATE" })}>Update every 10th row</button>
+        <button onClick={() => dispatch({ type: "SWAP_ROWS" })}>Swap Rows</button>
+        <button onClick={() => dispatch({ type: "CLEAR" })}>Clear</button>
       </div>
-    </div>
+      <ul id="3">
+        {data.map((item) => (
+          // <li>{item.id}</li>
+          <Row item={item} selected={selected === item.id} dispatch={dispatch} />
+        ))}
+      </ul>
+    </>
   );
 };
 
@@ -217,17 +207,15 @@ function RouteTest() {
   return (
     <>
       <button onClick={() => setIndex((index + 1) % 2)}>Next</button>
-      {index === 0 && (
-        <div id="0" style="display: flex; text-transform: uppercase;">
-          <strong>0</strong>
-          <h3 style="font-size: .5rem;">
-            I should be <em>REMOVED!!!!</em>
-          </h3>
-        </div>
-      )}
+      {index === 0 && <div id="0">first</div>}
       {index === 1 && (
-        <div id="1" style="color: green; display: flex; flex-direction: column;">
-          <h4>1</h4>
+        <div
+          id="1"
+          style={{
+            color: "green",
+          }}
+        >
+          second
         </div>
       )}
     </>
@@ -273,6 +261,32 @@ function ChildrenTypeChange() {
   );
 }
 
+function MiddleChildrenChange() {
+  const [data, setData] = useState<string[]>([]);
+  const onClick = () => {
+    if (data.length === 0) {
+      setData(["hi", "bye", "blue", "red"]);
+    } else {
+      setData([]);
+    }
+  };
+
+  return (
+    <>
+      <button onClick={onClick}>{data.length === 0 ? "show" : "hide"}</button>
+      <ol id="list">
+        <li>before</li>
+        <hr />
+        {data.map((item, i) => (
+          <li>{item}</li>
+        ))}
+        <hr />
+        <li>after</li>
+      </ol>
+    </>
+  );
+}
+
 // createRoot(document.querySelector("#app")!).render("hello");
 // createRoot(document.querySelector("#app")!).render(<h1>hello</h1>);
 // createRoot(document.querySelector("#app")!).render([1, 2, 3, "boink", false, 4]);
@@ -290,55 +304,11 @@ function ChildrenTypeChange() {
 //   </ChildrenTest>
 // );
 // createRoot(document.querySelector("#app")!).render(<SwitchElementsTest />);
-
-// createRoot(document.querySelector("#app")!).render(
-//   jsx(function asdf() {
-//     const [toggle, setToggle] = useState(true);
-//     return (
-//       <>
-//         <button
-//           onClick={() => {
-//             console.log("hi!");
-//             setToggle(!toggle);
-//           }}
-//         >
-//           switch
-//         </button>
-//         <div id="please">{toggle ? "hi" : "bye"}</div>
-//       </>
-//     );
-//   })
-// );
-
 // createRoot(document.querySelector("#app")!).render(<CountTest message="hi" />);
 // createRoot(document.querySelector("#app")!).render(<RowTest />);
 // createRoot(document.querySelector("#app")!).render(<ChildrenTypeChange />);
+// createRoot(document.querySelector("#app")!).render(<RouteTest />);
+// createRoot(document.querySelector("#app")!).render(<MiddleChildrenChange />);
 
-createRoot(document.querySelector("#app")!).render(<RouteTest />);
-createRoot(document.querySelector("#app")!).render(
-  jsx(function test() {
-    const [data, setData] = useState<string[]>([]);
-    return (
-      <>
-        <button
-          onClick={() => {
-            if (data.length === 0) {
-              setData(["hi", "bye", "blue", "red"]);
-            } else {
-              setData([]);
-            }
-          }}
-        >
-          {data.length === 0 ? "show" : "hide"}
-        </button>
-        <ol id="list">
-          {data.map((item, i) => (
-            <li>{item}</li>
-          ))}
-          hi
-          <hr />
-        </ol>
-      </>
-    );
-  })
-);
+// test: textAlign style property doesn't apply as object?
+createRoot(document.querySelector("#app")!).render(<div style={{ textAlign: "right" }}>text right</div>);

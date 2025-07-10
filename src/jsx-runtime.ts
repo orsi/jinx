@@ -29,29 +29,31 @@ export function createRoot(root: HTMLElement) {
         const current = stack.pop() as RenderNode;
         const { element, target, previous, renderNodes } = current;
 
-        const _type = (current._type =
-          typeof element === "boolean"
-            ? "conditional"
-            : typeof element === "string" || typeof element === "number"
-            ? "text"
-            : Array.isArray(element)
-            ? "children"
-            : typeof element === "object" && typeof element.tag === "string"
-            ? "html"
-            : typeof element === "object" && element.tag === Fragment
-            ? "fragment"
-            : "function");
+        // USED WHEN DEBUGGING
 
-        const _name = (current._name =
-          typeof element === "boolean" || typeof element === "string" || typeof element === "number"
-            ? `"${element}"`
-            : Array.isArray(element)
-            ? `[${element.map((n) => n?.tag?.name ?? n?.tag ?? n).join(", ")}]`
-            : typeof element === "object" && typeof element.tag === "string"
-            ? `<${element.tag}>`
-            : typeof element === "object" && element.tag === Fragment
-            ? `<>${element.children?.map((n) => n?.tag?.name ?? n?.tag ?? n).join(", ")}</>`
-            : `<${element.tag?.name}{} />`);
+        // const _type = (current._type =
+        //   typeof element === "boolean"
+        //     ? "conditional"
+        //     : typeof element === "string" || typeof element === "number"
+        //     ? "text"
+        //     : Array.isArray(element)
+        //     ? "children"
+        //     : typeof element === "object" && typeof element.tag === "string"
+        //     ? "html"
+        //     : typeof element === "object" && element.tag === Fragment
+        //     ? "fragment"
+        //     : "function");
+
+        // const _name = (current._name =
+        //   typeof element === "boolean" || typeof element === "string" || typeof element === "number"
+        //     ? `"${element}"`
+        //     : Array.isArray(element)
+        //     ? `[${element.map((n) => n?.tag?.name ?? n?.tag ?? n).join(", ")}]`
+        //     : typeof element === "object" && typeof element.tag === "string"
+        //     ? `<${element.tag}>`
+        //     : typeof element === "object" && element.tag === Fragment
+        //     ? `<>${element.children?.map((n) => n?.tag?.name ?? n?.tag ?? n).join(", ")}</>`
+        //     : `<${element.tag?.name}{} />`);
 
         if (renderNodes) {
           current.childNodes = renderNodes.map((render) => render.node).filter((node): node is Node => node != null);
@@ -61,10 +63,10 @@ export function createRoot(root: HTMLElement) {
           let i = 0;
           while (i < length) {
             const child = current.childNodes?.[i];
-            if (child && current.node && current.node instanceof DocumentFragment && !target.contains(child)) {
-              current.node.appendChild(child);
+            if (child && current.node && current.node instanceof DocumentFragment) {
+              current.node.append(child);
             } else if (child && current.node && current.node instanceof Element && !current.node.contains(child)) {
-              current.node.appendChild(child);
+              current.node.insertBefore(child, current.node.childNodes[i]);
             }
 
             const previousChild = previousNodes?.[i];
@@ -87,6 +89,7 @@ export function createRoot(root: HTMLElement) {
         let children: JinxElement[] | undefined;
         if (typeof element === "boolean") {
           // noop
+          previous?.node?.parentNode?.removeChild(previous?.node);
           continue;
         } else if (typeof element === "string" || typeof element === "number") {
           // text
