@@ -1,6 +1,8 @@
 # jinx
 
-a minimalist jsx rendering library
+a minimalist jsx rendering library  
+<small>no recursion allowed! :/</small>
+
 
 ## about
 
@@ -14,6 +16,7 @@ nothing really here now other than:
     - you'd most likely setup Vite or Typescript to auto-import these
 - type definitions for working with HTML elements and function components in JSX
 - renders JSX/TSX syntax
+
 ```tsx
 function MyApp() {
   const [toggle, setToggle] = useState(true);
