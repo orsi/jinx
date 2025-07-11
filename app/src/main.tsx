@@ -1,4 +1,4 @@
-import { createRoot, Fragment, useReducer, useState } from "./jsx-runtime.ts";
+import { createRoot, Fragment, useReducer, useState } from "jinx";
 import "./style.css";
 
 function ChildrenTest({ prop1, prop2, children }: any) {
@@ -287,7 +287,7 @@ function MiddleChildrenChange() {
   );
 }
 
-// createRoot(document.querySelector("#app")!).render("hello");
+createRoot(document.querySelector("#app")!).render("hello");
 // createRoot(document.querySelector("#app")!).render(<h1>hello</h1>);
 // createRoot(document.querySelector("#app")!).render([1, 2, 3, "boink", false, 4]);
 // createRoot(document.querySelector("#app")!).render(<div style={{ textAlign: "right" }}>text right</div>);
