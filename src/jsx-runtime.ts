@@ -145,8 +145,9 @@ export function createRoot(root: HTMLElement) {
               const eventName = prop.substring(2).toLowerCase() as keyof ElementEventMap;
               html.addEventListener(eventName, value as EventListenerOrEventListenerObject);
             } else if (prop === "style" && value != null && typeof value === "object") {
-              for (const [styleProps, styleValue] of Object.entries(value)) {
-                html.style.setProperty(styleProps, styleValue);
+              for (const [styleProp, styleValue] of Object.entries(value)) {
+                html.style[styleProp as any] = styleValue;
+                //                    ^ dirty, but I ain't figuring out how to type this
               }
             } else {
               html.setAttribute(prop, value as string);
