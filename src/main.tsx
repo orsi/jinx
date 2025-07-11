@@ -290,6 +290,7 @@ function MiddleChildrenChange() {
 // createRoot(document.querySelector("#app")!).render("hello");
 // createRoot(document.querySelector("#app")!).render(<h1>hello</h1>);
 // createRoot(document.querySelector("#app")!).render([1, 2, 3, "boink", false, 4]);
+// createRoot(document.querySelector("#app")!).render(<div style={{ textAlign: "right" }}>text right</div>);
 // createRoot(document.querySelector("#app")!).render(
 //   <div>
 //     <h1>
@@ -309,6 +310,3 @@ function MiddleChildrenChange() {
 // createRoot(document.querySelector("#app")!).render(<ChildrenTypeChange />);
 // createRoot(document.querySelector("#app")!).render(<RouteTest />);
 // createRoot(document.querySelector("#app")!).render(<MiddleChildrenChange />);
-
-// test: textAlign style property doesn't apply as object?
-createRoot(document.querySelector("#app")!).render(<div style={{ textAlign: "right" }}>text right</div>);
