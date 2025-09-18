@@ -3,6 +3,30 @@
 a minimalist jsx rendering library  
 <small>no recursion allowed! :/</small>
 
+## setup
+
+```ts
+// tsconfig.json
+{
+  "compilerOptions": {
+    "jsx": "preserve"
+  }
+}
+```
+
+```ts
+// vite.config.ts
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  esbuild: {
+    jsx: "transform",
+    jsxFactory: "__jsx",
+    jsxFragment: "__Fragment",
+    jsxInject: "import { jsx as __jsx, Fragment as __Fragment } from 'jinx';",
+  },
+});
+```
 
 ## about
 
