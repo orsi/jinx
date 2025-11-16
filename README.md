@@ -1,7 +1,6 @@
 # jinx
 
 a minimalist jsx rendering library  
-<small>no recursion allowed! :/</small>
 
 ## setup
 
@@ -33,12 +32,9 @@ export default defineConfig({
 nothing really here now other than:
 
 - exports:
-  - `createRoot(document.querySelector('#app')).render(<MyApp />)`
   - `useState(initialValue)`
-  - `useReducer(reducer, initialState)`
   - `jsx` and `Fragment` aka `<></>`
-    - you'd most likely setup Vite or Typescript to auto-import these
-- type definitions for working with HTML elements and function components in JSX
+    - you'd most likely setup Vite or Typescript to auto-import these type definitions for working with HTML elements and function components in JSX
 - renders JSX/TSX syntax
 
 ```tsx
