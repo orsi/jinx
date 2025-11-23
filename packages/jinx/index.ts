@@ -1,85 +1,92 @@
-let currentElement: Node | undefined;
+let CURRENT_COMPONENT: JINX | undefined;
 
-function renderChild(result: JSX.Child): Node {
-  if (typeof result === "string" || typeof result === "number") {
-    return document.createTextNode(result.toString());
-  } else if (typeof result === "boolean") {
-    return document.createElement("x-jinx");
-  } else if (result instanceof Node) {
-    return result;
+function renderChildNode(child: string | number | boolean | Node): Node {
+  if (typeof child === "string" || typeof child === "number") {
+    return document.createTextNode(child.toString());
+  } else if (typeof child === "boolean") {
+    return document.createDocumentFragment();
   } else {
-    const element = document.createElement("x-jinx");
-
-    for (const child of result) {
-      const childNode = renderChild(child);
-      element.appendChild(childNode);
-    }
-
-    return element;
+    return child;
   }
 }
 
-export function jsx(tag: string, props: JSX.Props, ...children: JSX.Child[]): Node;
-export function jsx(tag: JSX.Function, props: JSX.Props, ...children: JSX.Child[]): any;
-export function jsx(tag: string | JSX.Function, props: JSX.Props, ...children: JSX.Child[]): Node | any {
-  if (typeof tag === "function") {
-    const element = document.createElement("x-jinx");
-    element.__jinx = {
-      props: props ?? {
-        children: children ?? [],
-      },
-      tag,
-      state: element?.__jinx?.state ?? {
-        index: 0,
-        values: [],
-      },
-    };
-
-    // reset state tracking
-    element.__jinx.state.index = 0;
-    element.__jinx.props.children = children;
-    currentElement = element;
-
-    const result = tag(element.__jinx.props);
-    const node = renderChild(result);
-
-    for (const child of children) {
-      const childNode = renderChild(child);
-      node.appendChild(childNode);
+function renderChildren(children: JSX.Child[]): Node[] {
+  let rendered = [];
+  for (const child of children) {
+    if (Array.isArray(child)) {
+      rendered.push(...renderChildren(child));
+    } else {
+      rendered.push(renderChildNode(child));
     }
+  }
+  return rendered;
+}
 
-    element.appendChild(node);
-    currentElement = undefined;
-    return element;
+function renderComponent(tag: JSX.Function, props: JSX.Props, ref?: JINX) {
+  const component: JINX = ref ?? {
+    props,
+    state: {
+      index: 0,
+      values: [],
+    },
+    tag,
+  };
+
+  component.state.index = 0;
+  CURRENT_COMPONENT = component;
+  component.rendered = tag(component.props);
+  CURRENT_COMPONENT = undefined;
+
+  return component;
+}
+
+export function jsx(tag: string, props: JSX.Props, ...children: JSX.Child[]): HTMLElement;
+export function jsx(tag: JSX.Function, props: JSX.Props, ...children: JSX.Child[]): DocumentFragment;
+export function jsx(tag: string | JSX.Function, props: JSX.Props, ...children: JSX.Child[]) {
+  const renderedChildren = renderChildren(children);
+
+  let container: DocumentFragment | HTMLElement;
+  if (typeof tag === "function") {
+    container = document.createDocumentFragment();
+    const component = renderComponent(tag, { ...props, children });
+    const componentRendered = component.rendered!;
+    if (Array.isArray(componentRendered)) {
+      //
+    } else if (typeof componentRendered === "string" || typeof componentRendered === "number") {
+      const node = document.createTextNode(componentRendered.toString());
+      renderedChildren.push(node);
+    } else if (typeof componentRendered === "boolean") {
+      // renderedChildren.push(component);
+    } else if (componentRendered instanceof DocumentFragment) {
+      component.nodes = Array.from(componentRendered.childNodes);
+      renderedChildren.push(...componentRendered.childNodes);
+    } else {
+      renderedChildren.push(componentRendered);
+    }
   } else {
-    const html = document.createElement(tag);
+    container = document.createElement(tag);
     const currentProps = props ?? {};
     for (const [prop, value] of Object.entries(currentProps)) {
-      const isEvent = prop.startsWith("on") && prop.substring(2).toLowerCase() in html;
+      const isEvent = prop.startsWith("on") && prop.substring(2).toLowerCase() in container;
       if (isEvent) {
         const eventName = prop.substring(2).toLowerCase() as keyof ElementEventMap;
-        html.addEventListener(eventName, value as EventListenerOrEventListenerObject);
+        container.addEventListener(eventName, value as EventListenerOrEventListenerObject);
       } else if (prop === "style" && value != null && typeof value === "object") {
         for (const [styleProp, styleValue] of Object.entries(value)) {
-          html.style[styleProp as any] = styleValue;
+          container.style[styleProp as any] = styleValue;
           //                    ^ dirty, but I ain't figuring out how to type this
         }
       } else {
-        html.setAttribute(prop, value as string);
+        container.setAttribute(prop, value as string);
       }
     }
-
-    for (const child of children) {
-      if (typeof child === "string" || typeof child === "number") {
-        const text = document.createTextNode(child.toString());
-        html.appendChild(text);
-      } else if (child instanceof Node) {
-        html.appendChild(child);
-      }
-    }
-
-    return html;
   }
+
+  for (const child of renderedChildren) {
+    container.appendChild(child);
+  }
+
+  return container as HTMLElement | DocumentFragment;
 }
 
 export function Fragment(props: Record<string, unknown> & { children: JSX.Child }) {
@@ -87,55 +94,45 @@ export function Fragment(props: Record<string, unknown> & { children: JSX.Child 
 }
 
 export function useState<T>(initialValue: T extends Function ? never : T) {
-  console.log("useState", initialValue, currentElement);
-  const element = currentElement;
-  if (element == null || element.__jinx == null || element.__jinx.state == null) {
+  const jinx = CURRENT_COMPONENT;
+  if (jinx == null) {
     throw Error("What the heck am I supposed to do now????");
   }
 
-  let index = element.__jinx.state.index;
-  let currentValue = element.__jinx.state.values[index];
+  let index = jinx.state.index;
+  let currentValue = jinx.state.values[index];
   if (currentValue == null) {
-    currentValue = element.__jinx.state.values[index] = initialValue;
+    currentValue = jinx.state.values[index] = initialValue;
   }
 
   const set = (value: T extends Function ? (prev: T) => T : T) => {
-    console.log("set: ", value, element.__jinx);
-    if (element == null || element.__jinx == null || element.__jinx.state == null) {
-      throw Error("What the heck am I supposed to do now????");
+    jinx.state.values[index] = typeof value === "function" ? value(currentValue) : value;
+
+    const component = renderComponent(jinx.tag, jinx.props, jinx);
+    const componentRendered = component.rendered!;
+    if (componentRendered instanceof DocumentFragment) {
+      const nodes = Array.from(componentRendered.childNodes);
+      const total = Math.max(jinx.nodes?.length ?? 0, componentRendered.childNodes.length);
+      for (let i = 0; i < total; i++) {
+        const previous = jinx.nodes?.[i];
+        const next = nodes[i];
+
+        if (previous && next) {
+          previous.parentNode?.replaceChild(next, previous);
+        } else if (previous && !next) {
+          previous.parentNode?.removeChild(previous);
+        } else if (!previous && next) {
+          // TODO
+          // container.appendChild(next);
+        }
+      }
+      jinx.nodes = nodes;
+    } else {
+      // TODO
     }
-
-    const newElement = document.createElement("x-jinx");
-    newElement.__jinx = {
-      props: element.__jinx.props,
-      tag: element.__jinx.tag,
-      state: { ...element.__jinx.state },
-    };
-
-    newElement.__jinx.state.values[index] = typeof value === "function" ? value?.(currentValue) : value;
-
-    // reset state tracking
-    newElement.__jinx.state.index = 0;
-    currentElement = newElement;
-
-    const result = newElement.__jinx.tag(element.__jinx.props);
-    const node = renderChild(result);
-
-    const children = newElement.__jinx.props?.children ?? [];
-    for (const child of children) {
-      const childNode = renderChild(child);
-      node.appendChild(childNode);
-    }
-
-    newElement.appendChild(node);
-    currentElement = undefined;
-
-    console.log("update", newElement, element);
-    element.parentElement?.replaceChild(newElement, element);
   };
 
-  element.__jinx.state.index++;
-
+  jinx.state.index++;
   return [currentValue, set] as [T, (value: T | ((prev: T) => T)) => void];
 }
 
@@ -159,19 +156,6 @@ type IntrinsicHTMLElement<T extends keyof HTMLElementTagNameMap> = Prettify<
 >;
 
 declare global {
-  // augment HTML Node
-  interface Node {
-    __jinx: {
-      props: Record<string, unknown> & { children: JSX.Child[] };
-      tag: JSX.Function;
-      target?: Node;
-      state: {
-        index: number;
-        values: unknown[];
-      };
-    };
-  }
-
   namespace JSX {
     type IntrinsicElements = {
       [key in keyof HTMLElementTagNameMap]: IntrinsicHTMLElement<key>;
@@ -179,13 +163,13 @@ declare global {
       [key: string]: any;
     };
 
-    type Child = string | number | boolean | Node | Child[];
+    type Child = string | number | boolean | HTMLElement | DocumentFragment | Child[];
 
     interface ElementChildrenAttribute {
       children: {};
     }
 
-    type Element = string | Node;
+    type Element = string | HTMLElement | DocumentFragment;
 
     type ElementType = keyof IntrinsicElements | Function;
 
@@ -193,4 +177,16 @@ declare global {
 
     type Props = Record<string, unknown> & { children: JSX.Child[] };
   }
+
+  type JINX = {
+    props: Record<string, unknown> & { children: JSX.Child[] };
+    tag: JSX.Function;
+    target?: Node;
+    state: {
+      index: number;
+      values: unknown[];
+    };
+    nodes?: Node[];
+    rendered?: ReturnType<JSX.Function>;
+  } & Record<string, any>;
 }
