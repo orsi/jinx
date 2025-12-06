@@ -74,7 +74,6 @@ function appendChildren(children: NodeArray, target: Node) {
   }
 }
 
-let isMeasuring = false;
 export function jsx(tag: string, props: JSX.Props, ...children: JSX.Child[]): HTMLElement;
 export function jsx(tag: JSX.Function, props: JSX.Props, ...children: JSX.Child[]): DocumentFragment;
 export function jsx(tag: string | JSX.Function, props: JSX.Props, ...children: JSX.Child[]) {
@@ -136,7 +135,8 @@ export function useState<T>(initialValue: T extends Function ? never : T) {
       if (prevNode != null && nextNode != null) {
         prevNode.parentNode?.replaceChild(nextNode, prevNode);
       } else {
-        console.log("hmm", prevNode, nextNode);
+        // TODO: this branch never hit so far... 
+        console.warn("node is empty? prev/next: ", prevNode, nextNode);
       }
     }
 
