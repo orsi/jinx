@@ -1,11 +1,9 @@
-let CURRENT_JINX: JINX | undefined;
-
-function renderChildNode(child: string | number | boolean | Node): Node {
-  let node: Node;
-  if (typeof child === "string" || typeof child === "number") {
+function renderNode(child: string | number | boolean | Node) {
+  let node: Node | null;
+  if (typeof child === "boolean") {
+    node = null;
+  } else if (typeof child === "string" || typeof child === "number") {
     node = document.createTextNode(child.toString());
-  } else if (typeof child === "boolean") {
-    node = document.createDocumentFragment();
   } else {
     node = child;
   }
@@ -13,74 +11,66 @@ function renderChildNode(child: string | number | boolean | Node): Node {
   return node;
 }
 
-type NodeArray = (Node | NodeArray)[];
-function renderChildren(children: JSX.Child[]): NodeArray {
-  let rendered = [];
-  for (const child of children) {
-    if (Array.isArray(child)) {
-      rendered.push(renderChildren(child));
-    } else {
-      rendered.push(renderChildNode(child));
+function renderChildrenToNodes(children: JSX.Children) {
+  const nodes: Node[] = [];
+  if (Array.isArray(children)) {
+    for (const child of children) {
+      const innerChildren = renderChildrenToNodes(child);
+      nodes.push(...innerChildren);
+    }
+  } else if (children instanceof DocumentFragment) {
+    const childNodes = Array.from(children.childNodes);
+    nodes.push(...childNodes);
+  } else if (children instanceof Node) {
+    nodes.push(children);
+  } else {
+    const node = renderNode(children);
+    if (node) {
+      nodes.push(node);
     }
   }
 
-  return rendered;
+  return nodes;
 }
 
-function renderComponent(tag: JSX.Function, props: JSX.Props, values: unknown[]): JINX {
-  const component: JINX = {
+let CURRENT_JINX: JINX | undefined;
+function renderComponent(tag: JSX.Function, props: JSX.Props, values: unknown[]) {
+  const component = {
     props,
     state: {
       index: 0,
       values: values ?? [],
     },
     tag,
-  };
+  } as JINX;
 
-  component.state.index = 0;
   CURRENT_JINX = component;
-  component.rendered = tag(component.props);
-  CURRENT_JINX = undefined;
+  component.state.index = 0;
+  component.htmlOutput = tag(component.props) as JINX["htmlOutput"];
 
-  component.container = document.createDocumentFragment();
-  const componentRendered = component.rendered!;
-  component.nodes = [];
-  if (typeof componentRendered === "string" || typeof componentRendered === "number") {
-    const node = document.createTextNode(componentRendered.toString());
-    component.nodes.push(node);
-    component.container.appendChild(node);
-  } else if (typeof componentRendered === "boolean") {
-    // noop
-  } else if (Array.isArray(componentRendered)) {
-    appendChildren(renderChildren(componentRendered), component.container);
-  } else if (componentRendered instanceof DocumentFragment) {
-    component.nodes.push(...Array.from(componentRendered.childNodes));
-    component.container.appendChild(componentRendered);
+  if (Array.isArray(component.htmlOutput)) {
+    const fragment = document.createDocumentFragment();
+    const nodes = renderChildrenToNodes(component.htmlOutput);
+    for (const node of nodes) {
+      fragment.appendChild(node);
+    }
+    component.nodes = Array.from(component.htmlOutput);
+    component.htmlOutput = fragment;
+  } else if (component.htmlOutput instanceof DocumentFragment) {
+    component.nodes = Array.from(component.htmlOutput.childNodes);
   } else {
-    component.nodes.push(componentRendered);
-    component.container.appendChild(componentRendered);
+    component.nodes = [component.htmlOutput];
   }
 
   return component;
 }
 
-function appendChildren(children: NodeArray, target: Node) {
-  for (const child of children) {
-    if (Array.isArray(child)) {
-      appendChildren(child, target);
-    } else {
-      target.appendChild(child);
-    }
-  }
-}
-
-export function jsx(tag: string, props: JSX.Props, ...children: JSX.Child[]): HTMLElement;
-export function jsx(tag: JSX.Function, props: JSX.Props, ...children: JSX.Child[]): DocumentFragment;
-export function jsx(tag: string | JSX.Function, props: JSX.Props, ...children: JSX.Child[]) {
-  let container: Node;
+export function jsx(tag: string | JSX.Function, props: JSX.Props, ...children: JSX.Children[]) {
+  const nodes = renderChildrenToNodes(children);
   if (typeof tag === "function") {
-    const component = renderComponent(tag, { ...props, children }, []);
-    container = component.container!;
+    const jinxProps = { ...props, children: nodes };
+    const component = renderComponent(tag, jinxProps, []);
+    return component.htmlOutput;
   } else {
     const element = document.createElement(tag);
     const currentProps = props ?? {};
@@ -99,14 +89,30 @@ export function jsx(tag: string | JSX.Function, props: JSX.Props, ...children: J
       }
     }
 
-    appendChildren(renderChildren(children), element);
-    container = element;
+    for (const node of nodes) {
+      element.appendChild(node);
+    }
+
+    return element;
   }
-  return container as HTMLElement | DocumentFragment;
 }
 
-export function Fragment(props: Record<string, unknown> & { children: JSX.Child }) {
+export function Fragment(props: { children: JSX.Children }) {
   return props.children;
+}
+
+function diffComponents(previous: JINX, next: JINX) {
+  const total = Math.max(previous.nodes!.length, next.nodes!.length);
+  for (let i = 0; i < total; i++) {
+    const prevNode = previous.nodes![i];
+    const nextNode = next.nodes![i];
+    if (prevNode != null && nextNode != null) {
+      prevNode.parentNode?.replaceChild(nextNode, prevNode);
+    } else {
+      // TODO: this branch never hit so far...
+      console.warn("node is empty? prev/next: ", prevNode, nextNode);
+    }
+  }
 }
 
 export function useState<T>(initialValue: T extends Function ? never : T) {
@@ -128,17 +134,7 @@ export function useState<T>(initialValue: T extends Function ? never : T) {
     values[index] = typeof value === "function" ? value(currentValue) : value;
 
     const component = renderComponent(jinx.tag, jinx.props, values);
-    const total = Math.max(jinx.nodes!.length, component.nodes!.length);
-    for (let i = 0; i < total; i++) {
-      const prevNode = jinx.nodes![i];
-      const nextNode = component.nodes![i];
-      if (prevNode != null && nextNode != null) {
-        prevNode.parentNode?.replaceChild(nextNode, prevNode);
-      } else {
-        // TODO: this branch never hit so far... 
-        console.warn("node is empty? prev/next: ", prevNode, nextNode);
-      }
-    }
+    diffComponents(jinx, component);
 
     const t1 = performance.now();
     console.log(`useState update: ${(t1 - t0).toFixed()}ms`);
@@ -166,16 +162,7 @@ export function useReducer<T>(reducer: (state: T, action: { type: string }) => T
     values[index] = reducer(currentValue, action);
 
     const component = renderComponent(jinx.tag, jinx.props, values);
-    const total = Math.max(jinx.nodes!.length, component.nodes!.length);
-    for (let i = 0; i < total; i++) {
-      const prevNode = jinx.nodes![i];
-      const nextNode = component.nodes![i];
-      if (prevNode != null && nextNode != null) {
-        prevNode.parentNode?.replaceChild(nextNode, prevNode);
-      } else {
-        console.log("hmm", prevNode, nextNode);
-      }
-    }
+    diffComponents(jinx, component);
 
     const t1 = performance.now();
     console.log(`useReducer update: ${(t1 - t0).toFixed()}ms`);
@@ -212,7 +199,9 @@ declare global {
       [key: string]: any;
     };
 
-    type Child = string | number | boolean | HTMLElement | DocumentFragment | Child[];
+    type Children = string | number | boolean | Node | Children[];
+
+    type RenderedChildren = Node[];
 
     interface ElementChildrenAttribute {
       children: {};
@@ -222,9 +211,11 @@ declare global {
 
     type ElementType = keyof IntrinsicElements | Function;
 
-    type Function<T = any> = (props: Props & T) => Child;
+    type Function<T = any> = (props: Props & T) => Children;
 
-    type Props = Record<string, unknown> & { children?: Child[] };
+    type Props = Record<string, unknown>;
+
+    type ChildrenProps = { children: Children };
   }
 
   type JINX = {
@@ -234,8 +225,7 @@ declare global {
       index: number;
       values: unknown[];
     };
-    container?: Node;
-    nodes?: Node[];
-    rendered?: ReturnType<JSX.Function>;
-  } & Record<string, any>;
+    nodes: Node[];
+    htmlOutput: Node;
+  };
 }

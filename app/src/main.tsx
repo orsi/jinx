@@ -52,7 +52,10 @@ const NestedStuff = () => (
   </span>
 );
 
-const TestButton: JSX.Function = ({ children }) => {
+interface TestButton extends JSX.ChildrenProps {
+  hi?: string;
+}
+const TestButton = ({ children, hi }: TestButton) => {
   let [count, setCount] = useState(1);
 
   return (
@@ -79,7 +82,7 @@ const TestButton: JSX.Function = ({ children }) => {
   );
 };
 
-const TestComponent = (
+const TernaryComponent = (
   <>
     <h1 style={{ color: "green" }}>title</h1>
     <TestButton>push me!</TestButton>
@@ -233,7 +236,7 @@ const Button = ({ id, cb, title }: any) => (
   </div>
 );
 
-const Main: JSX.Function = ({ children }) => {
+const Main = ({ children }: JSX.ChildrenProps) => {
   const [{ data, selected }, dispatch] = useReducer(listReducer, initialState);
 
   return (
@@ -272,6 +275,24 @@ const Main: JSX.Function = ({ children }) => {
 };
 
 const t0 = performance.now();
-document.querySelector<HTMLDivElement>("body")!.append(<Main> {TestComponent}</Main>);
+document.querySelector<HTMLDivElement>("body")!.append(<Main>{TernaryComponent}</Main>);
 const t1 = performance.now();
+
+// const ComponentAsChild = () => <span>hi</span>;
+// const Testing = ({ children }: { children: any }) => {
+//   const [count, setCount] = useState(0);
+//   return (
+//     <>
+//       <button onClick={() => setCount(count + 1)}>{children}</button>
+//       {count}
+//     </>
+//   );
+// };
+// const t0 = performance.now();
+// document.querySelector<HTMLDivElement>("body")!.append(
+//   <Testing>
+//     <ComponentAsChild />
+//   </Testing>
+// );
+// const t1 = performance.now();
 console.log(`rendered: ${(t1 - t0).toFixed()}ms`);
