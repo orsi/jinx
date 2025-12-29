@@ -1,174 +1,230 @@
-function renderNode(child: string | number | boolean | Node) {
-  let node: Node | null;
-  if (typeof child === "boolean") {
-    node = null;
-  } else if (typeof child === "string" || typeof child === "number") {
-    node = document.createTextNode(child.toString());
-  } else {
-    node = child;
-  }
+let CONTEXT_COMPONENT_REF: JSX.ComponentRef | undefined;
 
-  return node;
+function renderComponent(
+  tag: JSX.ComponentFunction,
+  props: JSX.ComponentProps,
+  stateValues: unknown[],
+  jsxRef: JSX.Ref
+): JSX.ComponentRef {
+  const component: JSX.ComponentRef = {
+    jsxRef,
+    props,
+    render: undefined,
+    state: {
+      index: 0,
+      values: stateValues ?? [],
+    },
+    tag,
+  };
+
+  const previousContext = CONTEXT_COMPONENT_REF;
+  CONTEXT_COMPONENT_REF = component;
+  component.render = tag(component.props);
+  CONTEXT_COMPONENT_REF = previousContext;
+
+  return component;
 }
 
-function renderChildrenToNodes(children: JSX.Children) {
+function renderChildNodes(children: JSX.Child[], parent: Node, previousChildNodes?: Node[]): Node[] {
   const nodes: Node[] = [];
-  if (Array.isArray(children)) {
-    for (const child of children) {
-      const innerChildren = renderChildrenToNodes(child);
-      nodes.push(...innerChildren);
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i];
+    let previousChildNode = previousChildNodes?.[i];
+    if (typeof child === "boolean") {
+      // noop
+    } else if (typeof child === "string" || typeof child === "number") {
+      const previousTextNode = nodes[nodes.length - 1];
+      if (previousTextNode && previousTextNode.nodeType === Node.TEXT_NODE) {
+        previousTextNode.textContent += child.toString();
+        continue;
+      }
+
+      if (
+        previousChildNode &&
+        previousChildNode.nodeType === Node.TEXT_NODE &&
+        child !== previousChildNode.textContent
+      ) {
+        previousChildNode.textContent = child.toString();
+      } else {
+        previousChildNode = document.createTextNode(child.toString());
+      }
+      nodes.push(previousChildNode);
+    } else if (child instanceof DocumentFragment) {
+      nodes.push(...(child._jsxRef?.childNodes ?? []));
+    } else if (child instanceof Node) {
+      nodes.push(child);
     }
-  } else if (children instanceof DocumentFragment) {
-    const childNodes = Array.from(children.childNodes);
-    nodes.push(...childNodes);
-  } else if (children instanceof Node) {
-    nodes.push(children);
-  } else {
-    const node = renderNode(children);
-    if (node) {
-      nodes.push(node);
+  }
+
+  const childrenMaxLength = Math.max(nodes.length, previousChildNodes?.length ?? 0);
+  for (let i = 0; i < childrenMaxLength; i++) {
+    const attachedChildNode = previousChildNodes?.[i];
+
+    let childNode: Node | undefined = nodes[i];
+    if (!attachedChildNode && childNode) {
+      parent.appendChild(childNode);
+    } else if (attachedChildNode && childNode && attachedChildNode !== childNode) {
+      parent.appendChild(childNode);
+    } else {
+      console.log();
     }
   }
 
   return nodes;
 }
 
-let CURRENT_JINX: JINX | undefined;
-function renderComponent(tag: JSX.Function, props: JSX.Props, values: unknown[]) {
-  const component = {
-    props,
-    state: {
-      index: 0,
-      values: values ?? [],
-    },
-    tag,
-  } as JINX;
+function renderElement(tagName: string, props: JSX.Props, lastRender?: JSX.Ref) {
+  const element = (lastRender?.node as HTMLElement) ?? document.createElement(tagName);
+  const lastProps = lastRender?.args.props;
 
-  CURRENT_JINX = component;
-  component.state.index = 0;
-  component.htmlOutput = tag(component.props) as JINX["htmlOutput"];
-
-  if (Array.isArray(component.htmlOutput)) {
-    const fragment = document.createDocumentFragment();
-    const nodes = renderChildrenToNodes(component.htmlOutput);
-    for (const node of nodes) {
-      fragment.appendChild(node);
+  // remove previous
+  for (const [prop, value] of Object.entries(lastProps ?? {})) {
+    const isEvent = prop.startsWith("on") && prop.substring(2).toLowerCase() in element;
+    if (isEvent) {
+      const eventName = prop.substring(2).toLowerCase() as keyof ElementEventMap;
+      element.removeEventListener(eventName, value as EventListenerOrEventListenerObject);
+    } else if (prop === "style" && value != null && typeof value === "object") {
+      for (const [styleProp] of Object.entries(value)) {
+        element.style.removeProperty(styleProp);
+      }
+    } else {
+      element.removeAttribute(prop);
     }
-    component.nodes = Array.from(component.htmlOutput);
-    component.htmlOutput = fragment;
-  } else if (component.htmlOutput instanceof DocumentFragment) {
-    component.nodes = Array.from(component.htmlOutput.childNodes);
-  } else {
-    component.nodes = [component.htmlOutput];
   }
 
-  return component;
+  // set props
+  for (const [prop, value] of Object.entries(props ?? {})) {
+    const isEvent = prop.startsWith("on") && prop.substring(2).toLowerCase() in element;
+    if (isEvent) {
+      const eventName = prop.substring(2).toLowerCase() as keyof ElementEventMap;
+      element.addEventListener(eventName, value as EventListenerOrEventListenerObject);
+    } else if (prop === "style" && value != null && typeof value === "object") {
+      for (const [styleProp, styleValue] of Object.entries(value)) {
+        element.style[styleProp as any] = styleValue;
+        //                    ^ dirty, but I ain't figuring out how to type this
+      }
+    } else {
+      element.setAttribute(prop, value as string);
+    }
+  }
+
+  return element;
 }
 
-export function jsx(tag: string | JSX.Function, props: JSX.Props, ...children: JSX.Children[]) {
-  const nodes = renderChildrenToNodes(children);
-  if (typeof tag === "function") {
-    const jinxProps = { ...props, children: nodes };
-    const component = renderComponent(tag, jinxProps, []);
-    return component.htmlOutput;
-  } else {
-    const element = document.createElement(tag);
-    const currentProps = props ?? {};
-    for (const [prop, value] of Object.entries(currentProps)) {
-      const isEvent = prop.startsWith("on") && prop.substring(2).toLowerCase() in element;
-      if (isEvent) {
-        const eventName = prop.substring(2).toLowerCase() as keyof ElementEventMap;
-        element.addEventListener(eventName, value as EventListenerOrEventListenerObject);
-      } else if (prop === "style" && value != null && typeof value === "object") {
-        for (const [styleProp, styleValue] of Object.entries(value)) {
-          element.style[styleProp as any] = styleValue;
-          //                    ^ dirty, but I ain't figuring out how to type this
-        }
-      } else {
-        element.setAttribute(prop, value as string);
-      }
-    }
+export function jsx(tag: string | JSX.ComponentFunction, props: JSX.Props, ...children: JSX.Children): Node {
+  const jsxRef: JSX.Ref = {
+    args: {
+      children,
+      props,
+      tag,
+    },
+    childNodes: [],
+    componentRef: undefined,
+    node: undefined,
+    tree: [],
+    lastTree: [],
+  };
 
-    for (const node of nodes) {
-      element.appendChild(node);
-    }
-
-    return element;
+  if (CONTEXT_COMPONENT_REF?.tag.name === "Test") {
+    console.log();
   }
+
+  const lastRender = CONTEXT_COMPONENT_REF?.jsxRef.lastTree.shift();
+  CONTEXT_COMPONENT_REF?.jsxRef.tree.push(jsxRef);
+
+  const flattenedChildren = children.flat();
+  if (typeof tag === "function") {
+    jsxRef.componentRef = renderComponent(tag, { ...props, children: flattenedChildren }, [], jsxRef);
+
+    if (typeof jsxRef.componentRef.render === "boolean") {
+      jsxRef.node = document.createComment("");
+    } else if (jsxRef.componentRef.render instanceof Node) {
+      jsxRef.node = jsxRef.componentRef.render;
+    } else if (typeof jsxRef.componentRef.render === "string" || typeof jsxRef.componentRef.render === "number") {
+      const textNode = document.createTextNode(jsxRef.componentRef.render.toString());
+      jsxRef.node = textNode;
+    } else if (Array.isArray(jsxRef.componentRef.render)) {
+      jsxRef.node = lastRender?.node ?? document.createDocumentFragment();
+      jsxRef.childNodes = renderChildNodes(jsxRef.componentRef.render, jsxRef.node, lastRender?.childNodes);
+    } else {
+      throw Error("Unknown component result");
+    }
+  } else {
+    jsxRef.node = renderElement(tag, props, lastRender);
+    jsxRef.childNodes = renderChildNodes(flattenedChildren, jsxRef.node, lastRender?.childNodes);
+  }
+
+  jsxRef.node._jsxRef = jsxRef;
+  return jsxRef.node;
 }
 
 export function Fragment(props: { children: JSX.Children }) {
   return props.children;
 }
 
-function diffComponents(previous: JINX, next: JINX) {
-  const total = Math.max(previous.nodes!.length, next.nodes!.length);
-  for (let i = 0; i < total; i++) {
-    const prevNode = previous.nodes![i];
-    const nextNode = next.nodes![i];
-    if (prevNode != null && nextNode != null) {
-      prevNode.parentNode?.replaceChild(nextNode, prevNode);
-    } else {
-      // TODO: this branch never hit so far...
-      console.warn("node is empty? prev/next: ", prevNode, nextNode);
-    }
-  }
-}
-
 export function useState<T>(initialValue: T extends Function ? never : T) {
-  const jinx = CURRENT_JINX;
-  if (jinx == null) {
+  const lastComponentRef = CONTEXT_COMPONENT_REF;
+  if (lastComponentRef == null) {
     throw Error("useState: Unknown component to update.");
   }
 
-  let index = jinx.state.index;
-  let currentValue = jinx.state.values[index];
+  let index = lastComponentRef.state.index;
+  let currentValue = lastComponentRef.state.values[index];
   if (currentValue == null) {
-    currentValue = jinx.state.values[index] = initialValue;
+    currentValue = lastComponentRef.state.values[index] = initialValue;
   }
 
   const set = (value: T extends Function ? (prev: T) => T : T) => {
     const t0 = performance.now();
 
-    const values = [...jinx.state.values];
-    values[index] = typeof value === "function" ? value(currentValue) : value;
-
-    const component = renderComponent(jinx.tag, jinx.props, values);
-    diffComponents(jinx, component);
+    const stateValues = [...lastComponentRef.state.values];
+    stateValues[index] = typeof value === "function" ? value(currentValue) : value;
+    const component = {
+      ...lastComponentRef,
+      state: {
+        index: 0,
+        values: stateValues,
+      },
+    };
+    CONTEXT_COMPONENT_REF = component;
+    CONTEXT_COMPONENT_REF.jsxRef.lastTree = [...CONTEXT_COMPONENT_REF.jsxRef.tree];
+    CONTEXT_COMPONENT_REF.jsxRef.tree = [];
+    component.render = component.tag(component.props);
+    CONTEXT_COMPONENT_REF = undefined;
 
     const t1 = performance.now();
-    console.log(`useState update: ${(t1 - t0).toFixed()}ms`);
+    console.log(`useState:${lastComponentRef.tag.name}: ${(t1 - t0).toFixed()}ms`);
   };
 
-  jinx.state.index++;
+  lastComponentRef.state.index++;
   return [currentValue, set] as [T, (value: T | ((prev: T) => T)) => void];
 }
 
 export function useReducer<T>(reducer: (state: T, action: { type: string }) => T, initialValue: T) {
-  const jinx = CURRENT_JINX;
-  if (jinx == null) {
+  const lastComponentRef = CONTEXT_COMPONENT_REF;
+  if (lastComponentRef == null) {
     throw Error("useReducer: Unknown component to update.");
   }
 
-  let index = jinx.state.index;
-  let currentValue = jinx.state.values[index] as T;
+  let index = lastComponentRef.state.index;
+  let currentValue = lastComponentRef.state.values[index] as T;
   if (currentValue == null) {
-    currentValue = jinx.state.values[index] = initialValue;
+    currentValue = lastComponentRef.state.values[index] = initialValue;
   }
 
   const dispatch = (action: { type: string }) => {
     const t0 = performance.now();
-    const values = [...jinx.state.values];
+    const values = [...lastComponentRef.state.values];
     values[index] = reducer(currentValue, action);
 
-    const component = renderComponent(jinx.tag, jinx.props, values);
-    diffComponents(jinx, component);
+    const component = renderComponent(lastComponentRef.tag, lastComponentRef.props, values, lastComponentRef.jsxRef);
+    // diffComponents(jinx, component);
 
     const t1 = performance.now();
     console.log(`useReducer update: ${(t1 - t0).toFixed()}ms`);
   };
 
-  jinx.state.index++;
+  lastComponentRef.state.index++;
   return [currentValue, dispatch] as [T, typeof dispatch];
 }
 
@@ -192,16 +248,56 @@ type IntrinsicHTMLElement<T extends keyof HTMLElementTagNameMap> = Prettify<
 >;
 
 declare global {
+  interface Node {
+    _jsxRef?: JSX.Ref;
+  }
+
   namespace JSX {
+    type Ref = {
+      args: {
+        children: JSX.Children;
+        props: Props;
+        tag: string | ComponentFunction;
+      };
+      childNodes: Node[];
+      componentRef?: ComponentRef;
+      node?: Node;
+      tree: Ref[];
+      lastTree: Ref[];
+    };
+
+    type Child = string | number | boolean | Node;
+
+    type ChildOrChildArray = Child | Child[];
+
+    type Children = ChildOrChildArray[];
+
+    type RenderedChildren = Node[];
+
+    type ChildrenProps = { children: Child | Child[] };
+
+    type Props = Record<string, unknown> | null;
+
+    type ComponentProps = Props & ChildrenProps;
+
+    type ComponentFunction<T = any> = (props: Props & T) => ChildOrChildArray;
+
+    type ComponentRef = {
+      jsxRef: Ref;
+      props: ComponentProps;
+      render?: ReturnType<ComponentFunction>;
+      state: {
+        index: number;
+        values: unknown[];
+      };
+      tag: ComponentFunction;
+    };
+
     type IntrinsicElements = {
       [key in keyof HTMLElementTagNameMap]: IntrinsicHTMLElement<key>;
     } & {
       [key: string]: any;
     };
-
-    type Children = string | number | boolean | Node | Children[];
-
-    type RenderedChildren = Node[];
 
     interface ElementChildrenAttribute {
       children: {};
@@ -209,23 +305,6 @@ declare global {
 
     type Element = string | HTMLElement | DocumentFragment;
 
-    type ElementType = keyof IntrinsicElements | Function;
-
-    type Function<T = any> = (props: Props & T) => Children;
-
-    type Props = Record<string, unknown>;
-
-    type ChildrenProps = { children: Children };
+    type ElementType = keyof IntrinsicElements | ComponentFunction;
   }
-
-  type JINX = {
-    props: JSX.Props;
-    tag: JSX.Function;
-    state: {
-      index: number;
-      values: unknown[];
-    };
-    nodes: Node[];
-    htmlOutput: Node;
-  };
 }
