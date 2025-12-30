@@ -8,6 +8,7 @@ function renderComponent(
 ): JSX.ComponentRef {
   const component: JSX.ComponentRef = {
     jsxRef,
+    jsxChildren: [],
     props,
     render: undefined,
     state: {
@@ -66,7 +67,7 @@ function renderChildNodes(children: JSX.Child[], parent: Node, previousChildNode
     } else if (attachedChildNode && childNode && attachedChildNode !== childNode) {
       parent.appendChild(childNode);
     } else {
-      console.log();
+      // console.log();
     }
   }
 
@@ -121,16 +122,9 @@ export function jsx(tag: string | JSX.ComponentFunction, props: JSX.Props, ...ch
     childNodes: [],
     componentRef: undefined,
     node: undefined,
-    tree: [],
-    lastTree: [],
   };
-
-  if (CONTEXT_COMPONENT_REF?.tag.name === "Test") {
-    console.log();
-  }
-
-  const lastRender = CONTEXT_COMPONENT_REF?.jsxRef.lastTree.shift();
-  CONTEXT_COMPONENT_REF?.jsxRef.tree.push(jsxRef);
+  CONTEXT_COMPONENT_REF?.jsxChildren.push(jsxRef);
+  const lastRender = CONTEXT_COMPONENT_REF?.previous?.jsxChildren.shift();
 
   const flattenedChildren = children.flat();
   if (typeof tag === "function") {
@@ -181,14 +175,14 @@ export function useState<T>(initialValue: T extends Function ? never : T) {
     stateValues[index] = typeof value === "function" ? value(currentValue) : value;
     const component = {
       ...lastComponentRef,
+      jsxChildren: [],
+      previous: CONTEXT_COMPONENT_REF,
       state: {
         index: 0,
         values: stateValues,
       },
     };
     CONTEXT_COMPONENT_REF = component;
-    CONTEXT_COMPONENT_REF.jsxRef.lastTree = [...CONTEXT_COMPONENT_REF.jsxRef.tree];
-    CONTEXT_COMPONENT_REF.jsxRef.tree = [];
     component.render = component.tag(component.props);
     CONTEXT_COMPONENT_REF = undefined;
 
@@ -217,8 +211,18 @@ export function useReducer<T>(reducer: (state: T, action: { type: string }) => T
     const values = [...lastComponentRef.state.values];
     values[index] = reducer(currentValue, action);
 
-    const component = renderComponent(lastComponentRef.tag, lastComponentRef.props, values, lastComponentRef.jsxRef);
-    // diffComponents(jinx, component);
+    const component = {
+      ...lastComponentRef,
+      jsxChildren: [],
+      previous: CONTEXT_COMPONENT_REF,
+      state: {
+        index: 0,
+        values,
+      },
+    };
+    CONTEXT_COMPONENT_REF = component;
+    component.render = component.tag(component.props);
+    CONTEXT_COMPONENT_REF = undefined;
 
     const t1 = performance.now();
     console.log(`useReducer update: ${(t1 - t0).toFixed()}ms`);
@@ -262,8 +266,6 @@ declare global {
       childNodes: Node[];
       componentRef?: ComponentRef;
       node?: Node;
-      tree: Ref[];
-      lastTree: Ref[];
     };
 
     type Child = string | number | boolean | Node;
@@ -291,6 +293,8 @@ declare global {
         values: unknown[];
       };
       tag: ComponentFunction;
+      jsxChildren: Ref[];
+      previous?: ComponentRef;
     };
 
     type IntrinsicElements = {
