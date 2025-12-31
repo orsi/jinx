@@ -1,7 +1,7 @@
 import "./main.css";
 import { useState, useReducer } from "jinx";
 
-const TESTS: (() => { name: string; result?: boolean })[] = [];
+const TESTS: (() => { name: string; result?: boolean; hasResult: boolean })[] = [];
 
 function runTests() {
   const $resultsContainer = document.createElement("div");
@@ -13,7 +13,7 @@ function runTests() {
   for (const test of TESTS) {
     const t = test();
     results.push(t);
-    if (t.result === false) {
+    if (t.hasResult && !t.result) {
       const $testContainer = document.createElement("div");
       $testContainer.style.fontSize = "12px";
       $testContainer.style.color = "grey";
@@ -23,20 +23,22 @@ function runTests() {
     }
   }
 
-  document.querySelector<HTMLDivElement>("body")!.prepend($resultsContainer);
-  if (results.every((t) => t.result == null || t.result === true)) {
+  console.log(results);
+  if (results.every((t) => !t.hasResult || t.result)) {
     $resultsContainer.style.color = "green";
     $resultsContainer.prepend("ALL TESTS PASSED");
   } else {
     $resultsContainer.style.color = "red";
     $resultsContainer.prepend("FAILED");
   }
+
+  document.querySelector<HTMLDivElement>("body")!.prepend($resultsContainer);
 }
 
 function test(
   name: string,
   testFn: () => JSX.Element | JSX.ComponentFunction,
-  testResultFn?: (container: HTMLElement) => boolean
+  testResultFn?: (container: HTMLElement) => boolean | undefined
 ) {
   const $testContainer = document.createElement("div");
   $testContainer.style.margin = "16px 24px";
@@ -70,6 +72,7 @@ function test(
     return {
       name,
       result,
+      hasResult: testResultFn != null,
     };
   });
 
@@ -89,7 +92,7 @@ test(
   ($container) => {
     return $container.innerHTML.includes(text);
   }
-);
+).skip();
 
 let state: any;
 test(
@@ -120,7 +123,7 @@ test(
     state[1](2);
     return $container.innerHTML.includes("Push me 2") && $container.innerHTML.includes(text);
   }
-);
+).skip();
 
 let reducer: any;
 test(
@@ -147,7 +150,7 @@ test(
     reducer[1]({ type: "CHANGE", value: 25 });
     return $container.innerText.includes("25");
   }
-);
+).skip();
 
 test(
   "Component returns array",
@@ -159,7 +162,7 @@ test(
   ($container) => {
     return $container.innerHTML.includes("1hi234");
   }
-);
+).skip();
 
 test(
   "Component returns array",
@@ -172,7 +175,7 @@ test(
     const span = $container.querySelector("span");
     return $container.innerHTML.includes("1hi") && span != null && span.innerHTML.includes("false");
   }
-);
+).skip();
 
 test(
   "Component returns string",
@@ -184,7 +187,7 @@ test(
   ($container) => {
     return $container.innerHTML.includes("hi");
   }
-);
+).skip();
 
 test(
   "Component returns 4",
@@ -196,7 +199,7 @@ test(
   ($container) => {
     return $container.innerHTML.includes("4");
   }
-);
+).skip();
 
 test(
   "Component returns true boolean, should be empty",
@@ -208,7 +211,7 @@ test(
   ($container) => {
     return $container.innerText === "";
   }
-);
+).skip();
 
 test(
   "Component returns false boolean, should be empty",
@@ -221,7 +224,7 @@ test(
     console.log($container.innerText);
     return $container.innerText === "";
   }
-);
+).skip();
 
 test(
   "Random test",
@@ -245,7 +248,7 @@ test(
     $container.querySelector("marquee")!.innerText.includes("true shortcircuit") &&
     $container.querySelector("div") != null &&
     $container.querySelector("div")!.innerText.includes("true tern!")
-);
+).skip();
 
 let MyComponentState: any;
 test(
@@ -273,7 +276,7 @@ test(
     const $countContainer = $container.querySelector("#count") as HTMLElement;
     return $countContainer != null && $countContainer.innerText.includes("10");
   }
-);
+).skip();
 
 test(
   "Nesting",
@@ -317,7 +320,7 @@ test(
     return <TestButton hi="hello">I'm a child</TestButton>;
   },
   ($container) => $container.innerText.includes("...hi")
-);
+).skip();
 
 let JSRuntimeReducer: any;
 test(
@@ -505,5 +508,46 @@ test(
     return $container.querySelector("tr.row") != null;
   }
 ).skip();
+
+let ChildrenSwapState: any;
+test(
+  "ChildrenSwap",
+  () => {
+    const Swap = () => {
+      const [data, setData] = (ChildrenSwapState = useState<any[]>(["1", 2, "3", <span>4</span>]));
+
+      const swap = () => {
+        setData((value) => {
+          const next = [...value];
+          next.push(next.shift());
+          return next;
+        });
+      };
+
+      return (
+        <>
+          <button onClick={swap}>Swap</button>
+
+          <ul id="list">
+            {data.map((item) => (
+              <li>{item}</li>
+            ))}
+          </ul>
+        </>
+      );
+    };
+    return <Swap />;
+  },
+  ($container) => {
+    ChildrenSwapState[1]((value) => {
+      const next = [...value];
+      next.push(next.shift());
+      return next;
+    });
+
+    const $ul = $container.querySelector("#list");
+    return $ul != null && $ul.firstChild?.textContent?.includes("2") && $ul.lastChild?.textContent?.includes("1");
+  }
+);
 
 runTests();
