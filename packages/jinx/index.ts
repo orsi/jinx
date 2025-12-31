@@ -28,30 +28,34 @@ function renderComponent(
   return component;
 }
 
-function renderChildNodes(children: JSX.Child[], parent: Node, previousChildNodes?: Node[]): Node[] {
+function renderChildNodes(children: JSX.Child[], parent: Node, previousNodes?: Node[]): Node[] {
   const nodes: Node[] = [];
   for (let i = 0; i < children.length; i++) {
+    const lastNode = nodes[nodes.length - 1];
+    const previousNode = previousNodes?.[i];
     const child = children[i];
-    let previousChildNode = previousChildNodes?.[i];
+
     if (typeof child === "boolean") {
-      // noop
+      console.log();
+      if (previousNode) {
+        previousNode.textContent = "";
+      }
     } else if (typeof child === "string" || typeof child === "number") {
-      const previousTextNode = nodes[nodes.length - 1];
-      if (previousTextNode && previousTextNode.nodeType === Node.TEXT_NODE) {
-        previousTextNode.textContent += child.toString();
+      // accumulate text in one node if the last node was #text
+      if (lastNode?.nodeType === Node.TEXT_NODE) {
+        lastNode.textContent += child.toString();
         continue;
       }
 
-      if (
-        previousChildNode &&
-        previousChildNode.nodeType === Node.TEXT_NODE &&
-        child !== previousChildNode.textContent
-      ) {
-        previousChildNode.textContent = child.toString();
+      let node = previousNode;
+      if (node && node.nodeType === Node.TEXT_NODE && child !== node.textContent) {
+        node.textContent = child.toString();
+      } else if (node && node.nodeType === Node.TEXT_NODE && child === node.textContent) {
+        // noop
       } else {
-        previousChildNode = document.createTextNode(child.toString());
+        node = document.createTextNode(child.toString());
       }
-      nodes.push(previousChildNode);
+      nodes.push(node);
     } else if (child instanceof DocumentFragment) {
       nodes.push(...(child._jsxRef?.childNodes ?? []));
     } else if (child instanceof Node) {
@@ -59,17 +63,18 @@ function renderChildNodes(children: JSX.Child[], parent: Node, previousChildNode
     }
   }
 
-  const childrenMaxLength = Math.max(nodes.length, previousChildNodes?.length ?? 0);
+  const childrenMaxLength = Math.max(nodes.length, previousNodes?.length ?? 0);
   for (let i = 0; i < childrenMaxLength; i++) {
-    const attachedChildNode = previousChildNodes?.[i];
-
-    let childNode: Node | undefined = nodes[i];
-    if (!attachedChildNode && childNode) {
-      parent.appendChild(childNode);
-    } else if (attachedChildNode && childNode && attachedChildNode !== childNode) {
-      parent.appendChild(childNode);
+    const previousNode = previousNodes?.[i];
+    const node: Node | undefined = nodes[i];
+    if (!previousNode && node) {
+      parent.appendChild(node);
+    } else if (previousNode && node && previousNode !== node && parent.contains(previousNode)) {
+      parent.replaceChild(node, previousNode);
+    } else if (previousNode && node && previousNode !== node) {
+      parent.appendChild(node);
     } else {
-      // console.log();
+      console.log();
     }
   }
 
