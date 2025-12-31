@@ -1,27 +1,29 @@
-let CONTEXT_COMPONENT_REF: JSX.ComponentRef | undefined;
+let CURRENT_COMPONENT: JSX.ComponentRef | undefined;
 
 function renderComponent(
   tag: JSX.ComponentFunction,
   props: JSX.ComponentProps,
   stateValues: unknown[],
-  jsxRef: JSX.Ref
+  jsxRef?: JSX.Ref,
+  previous?: JSX.ComponentRef
 ): JSX.ComponentRef {
+  const currentContext = CURRENT_COMPONENT;
   const component: JSX.ComponentRef = {
     jsxRef,
     jsxChildren: [],
     props,
+    previous,
     render: undefined,
     state: {
       index: 0,
-      values: stateValues ?? [],
+      values: stateValues,
     },
     tag,
   };
 
-  const previousContext = CONTEXT_COMPONENT_REF;
-  CONTEXT_COMPONENT_REF = component;
+  CURRENT_COMPONENT = component;
   component.render = tag(component.props);
-  CONTEXT_COMPONENT_REF = previousContext;
+  CURRENT_COMPONENT = currentContext;
 
   return component;
 }
@@ -120,32 +122,38 @@ export function jsx(tag: string | JSX.ComponentFunction, props: JSX.Props, ...ch
       tag,
     },
     childNodes: [],
-    componentRef: undefined,
+    component: undefined,
     node: undefined,
+    previous: CURRENT_COMPONENT?.previous?.jsxChildren.shift(),
   };
-  CONTEXT_COMPONENT_REF?.jsxChildren.push(jsxRef);
-  const lastRender = CONTEXT_COMPONENT_REF?.previous?.jsxChildren.shift();
+  CURRENT_COMPONENT?.jsxChildren.push(jsxRef);
 
   const flattenedChildren = children.flat();
   if (typeof tag === "function") {
-    jsxRef.componentRef = renderComponent(tag, { ...props, children: flattenedChildren }, [], jsxRef);
+    jsxRef.component = renderComponent(
+      tag,
+      { ...props, children: flattenedChildren },
+      jsxRef.previous?.component?.state.values ?? [],
+      jsxRef,
+      jsxRef.previous?.component
+    );
 
-    if (typeof jsxRef.componentRef.render === "boolean") {
+    if (typeof jsxRef.component.render === "boolean") {
       jsxRef.node = document.createComment("");
-    } else if (jsxRef.componentRef.render instanceof Node) {
-      jsxRef.node = jsxRef.componentRef.render;
-    } else if (typeof jsxRef.componentRef.render === "string" || typeof jsxRef.componentRef.render === "number") {
-      const textNode = document.createTextNode(jsxRef.componentRef.render.toString());
+    } else if (jsxRef.component.render instanceof Node) {
+      jsxRef.node = jsxRef.component.render;
+    } else if (typeof jsxRef.component.render === "string" || typeof jsxRef.component.render === "number") {
+      const textNode = document.createTextNode(jsxRef.component.render.toString());
       jsxRef.node = textNode;
-    } else if (Array.isArray(jsxRef.componentRef.render)) {
-      jsxRef.node = lastRender?.node ?? document.createDocumentFragment();
-      jsxRef.childNodes = renderChildNodes(jsxRef.componentRef.render, jsxRef.node, lastRender?.childNodes);
+    } else if (Array.isArray(jsxRef.component.render)) {
+      jsxRef.node = jsxRef.previous?.node ?? document.createDocumentFragment();
+      jsxRef.childNodes = renderChildNodes(jsxRef.component.render, jsxRef.node, jsxRef.previous?.childNodes);
     } else {
       throw Error("Unknown component result");
     }
   } else {
-    jsxRef.node = renderElement(tag, props, lastRender);
-    jsxRef.childNodes = renderChildNodes(flattenedChildren, jsxRef.node, lastRender?.childNodes);
+    jsxRef.node = renderElement(tag, props, jsxRef.previous);
+    jsxRef.childNodes = renderChildNodes(flattenedChildren, jsxRef.node, jsxRef.previous?.childNodes);
   }
 
   jsxRef.node._jsxRef = jsxRef;
@@ -156,80 +164,53 @@ export function Fragment(props: { children: JSX.Children }) {
   return props.children;
 }
 
-export function useState<T>(initialValue: T extends Function ? never : T) {
-  const lastComponentRef = CONTEXT_COMPONENT_REF;
-  if (lastComponentRef == null) {
+function useCurrentComponentState<T>(initialValue: T) {
+  const component = CURRENT_COMPONENT;
+  if (component == null) {
     throw Error("useState: Unknown component to update.");
   }
 
-  let index = lastComponentRef.state.index;
-  let currentValue = lastComponentRef.state.values[index];
-  if (currentValue == null) {
-    currentValue = lastComponentRef.state.values[index] = initialValue;
+  const index = component.state.index;
+
+  // setup initial value
+  if (component.state.values[index] == null) {
+    component.state.values[index] = initialValue;
   }
 
-  const set = (value: T extends Function ? (prev: T) => T : T) => {
-    const t0 = performance.now();
+  const value = component.state.values[index];
 
-    const stateValues = [...lastComponentRef.state.values];
-    stateValues[index] = typeof value === "function" ? value(currentValue) : value;
-    const component = {
-      ...lastComponentRef,
-      jsxChildren: [],
-      previous: CONTEXT_COMPONENT_REF,
-      state: {
-        index: 0,
-        values: stateValues,
-      },
-    };
-    CONTEXT_COMPONENT_REF = component;
-    component.render = component.tag(component.props);
-    CONTEXT_COMPONENT_REF = undefined;
+  // update state index
+  component.state.index++;
 
-    const t1 = performance.now();
-    console.log(`useState:${lastComponentRef.tag.name}: ${(t1 - t0).toFixed()}ms`);
+  const update = (nextValue: T, index: number) => {
+    const values = [...component.state.values];
+    values[index] = nextValue;
+    renderComponent(component.tag, component.props, values, undefined, component);
   };
 
-  lastComponentRef.state.index++;
-  return [currentValue, set] as [T, (value: T | ((prev: T) => T)) => void];
+  return [value, index, update] as [T, number, (value: T, index: number) => void];
+}
+
+export function useState<T>(initialValue: T extends Function ? never : T) {
+  const [value, index, update] = useCurrentComponentState(initialValue);
+
+  const set = (_value: T extends Function ? (prev: T) => T : T) => {
+    const nextValue = typeof _value === "function" ? _value(value) : _value;
+    update(nextValue, index);
+  };
+
+  return [value, set] as [T, typeof set];
 }
 
 export function useReducer<T>(reducer: (state: T, action: { type: string }) => T, initialValue: T) {
-  const lastComponentRef = CONTEXT_COMPONENT_REF;
-  if (lastComponentRef == null) {
-    throw Error("useReducer: Unknown component to update.");
-  }
+  const [value, index, setter] = useCurrentComponentState(initialValue);
 
-  let index = lastComponentRef.state.index;
-  let currentValue = lastComponentRef.state.values[index] as T;
-  if (currentValue == null) {
-    currentValue = lastComponentRef.state.values[index] = initialValue;
-  }
-
-  const dispatch = (action: { type: string }) => {
-    const t0 = performance.now();
-    const values = [...lastComponentRef.state.values];
-    values[index] = reducer(currentValue, action);
-
-    const component = {
-      ...lastComponentRef,
-      jsxChildren: [],
-      previous: CONTEXT_COMPONENT_REF,
-      state: {
-        index: 0,
-        values,
-      },
-    };
-    CONTEXT_COMPONENT_REF = component;
-    component.render = component.tag(component.props);
-    CONTEXT_COMPONENT_REF = undefined;
-
-    const t1 = performance.now();
-    console.log(`useReducer update: ${(t1 - t0).toFixed()}ms`);
+  const set = (action: { type: string }) => {
+    const nextValue = reducer(value, action);
+    setter(nextValue, index);
   };
 
-  lastComponentRef.state.index++;
-  return [currentValue, dispatch] as [T, typeof dispatch];
+  return [value, set] as [T, typeof set];
 }
 
 // damn this is an amazing hack
@@ -264,8 +245,9 @@ declare global {
         tag: string | ComponentFunction;
       };
       childNodes: Node[];
-      componentRef?: ComponentRef;
+      component?: ComponentRef;
       node?: Node;
+      previous?: JSX.Ref;
     };
 
     type Child = string | number | boolean | Node;
@@ -285,7 +267,9 @@ declare global {
     type ComponentFunction<T = any> = (props: Props & T) => ChildOrChildArray;
 
     type ComponentRef = {
-      jsxRef: Ref;
+      jsxChildren: Ref[];
+      jsxRef?: Ref;
+      previous?: ComponentRef;
       props: ComponentProps;
       render?: ReturnType<ComponentFunction>;
       state: {
@@ -293,8 +277,6 @@ declare global {
         values: unknown[];
       };
       tag: ComponentFunction;
-      jsxChildren: Ref[];
-      previous?: ComponentRef;
     };
 
     type IntrinsicElements = {
