@@ -36,7 +36,6 @@ function renderChildNodes(children: JSX.Child[], parent: Node, previousNodes?: N
     const child = children[i];
 
     if (typeof child === "boolean") {
-      console.log();
       if (previousNode) {
         previousNode.textContent = "";
       }
@@ -196,26 +195,28 @@ function useCurrentComponentState<T>(initialValue: T) {
   return [value, index, update] as [T, number, (value: T, index: number) => void];
 }
 
-export function useState<T>(initialValue: T extends Function ? never : T) {
-  const [value, index, update] = useCurrentComponentState(initialValue);
+export function useState<V>(initialValue: V | (() => V)) {
+  const [value, index, update] = useCurrentComponentState(
+    initialValue instanceof Function ? initialValue() : initialValue
+  );
 
-  const set = (_value: T extends Function ? (prev: T) => T : T) => {
-    const nextValue = typeof _value === "function" ? _value(value) : _value;
+  const set = (_value: V | ((prev: V) => V)) => {
+    const nextValue = _value instanceof Function ? _value(value) : _value;
     update(nextValue, index);
   };
 
-  return [value, set] as [T, typeof set];
+  return [value, set] as [V, typeof set];
 }
 
-export function useReducer<T>(reducer: (state: T, action: { type: string }) => T, initialValue: T) {
-  const [value, index, setter] = useCurrentComponentState(initialValue);
+export function useReducer<S>(reducer: (state: S, action: { type: string }) => S, initialState: S, init?: (s: S) => S) {
+  const [state, index, update] = useCurrentComponentState(init != null ? init(initialState) : initialState);
 
   const set = (action: { type: string }) => {
-    const nextValue = reducer(value, action);
-    setter(nextValue, index);
+    const nextValue = reducer(state, action);
+    update(nextValue, index);
   };
 
-  return [value, set] as [T, typeof set];
+  return [state, set] as [S, typeof set];
 }
 
 // damn this is an amazing hack
