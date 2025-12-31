@@ -23,7 +23,6 @@ function runTests() {
     }
   }
 
-  console.log(results);
   if (results.every((t) => !t.hasResult || t.result)) {
     $resultsContainer.style.color = "green";
     $resultsContainer.prepend("ALL TESTS PASSED");
@@ -92,7 +91,7 @@ test(
   ($container) => {
     return $container.innerHTML.includes(text);
   }
-).skip();
+);
 
 let state: any;
 test(
@@ -123,7 +122,7 @@ test(
     state[1](2);
     return $container.innerHTML.includes("Push me 2") && $container.innerHTML.includes(text);
   }
-).skip();
+);
 
 let reducer: any;
 test(
@@ -150,7 +149,7 @@ test(
     reducer[1]({ type: "CHANGE", value: 25 });
     return $container.innerText.includes("25");
   }
-).skip();
+);
 
 test(
   "Component returns array",
@@ -162,7 +161,7 @@ test(
   ($container) => {
     return $container.innerHTML.includes("1hi234");
   }
-).skip();
+);
 
 test(
   "Component returns array",
@@ -175,7 +174,7 @@ test(
     const span = $container.querySelector("span");
     return $container.innerHTML.includes("1hi") && span != null && span.innerHTML.includes("false");
   }
-).skip();
+);
 
 test(
   "Component returns string",
@@ -187,7 +186,7 @@ test(
   ($container) => {
     return $container.innerHTML.includes("hi");
   }
-).skip();
+);
 
 test(
   "Component returns 4",
@@ -199,7 +198,7 @@ test(
   ($container) => {
     return $container.innerHTML.includes("4");
   }
-).skip();
+);
 
 test(
   "Component returns true boolean, should be empty",
@@ -211,7 +210,7 @@ test(
   ($container) => {
     return $container.innerText === "";
   }
-).skip();
+);
 
 test(
   "Component returns false boolean, should be empty",
@@ -224,7 +223,7 @@ test(
     console.log($container.innerText);
     return $container.innerText === "";
   }
-).skip();
+);
 
 test(
   "Random test",
@@ -248,7 +247,7 @@ test(
     $container.querySelector("marquee")!.innerText.includes("true shortcircuit") &&
     $container.querySelector("div") != null &&
     $container.querySelector("div")!.innerText.includes("true tern!")
-).skip();
+);
 
 let MyComponentState: any;
 test(
@@ -276,7 +275,7 @@ test(
     const $countContainer = $container.querySelector("#count") as HTMLElement;
     return $countContainer != null && $countContainer.innerText.includes("10");
   }
-).skip();
+);
 
 test(
   "Nesting",
@@ -320,7 +319,48 @@ test(
     return <TestButton hi="hello">I'm a child</TestButton>;
   },
   ($container) => $container.innerText.includes("...hi")
-).skip();
+);
+
+let ChildrenSwapState: any;
+test(
+  "ChildrenSwap",
+  () => {
+    const Swap = () => {
+      const [data, setData] = (ChildrenSwapState = useState(() => ["1", 2, "3", <span>4</span>]));
+
+      const swap = () => {
+        setData((value) => {
+          const next = [...value];
+          next.push(next.shift()!);
+          return next;
+        });
+      };
+
+      return (
+        <>
+          <button onClick={swap}>Swap</button>
+
+          <ul id="list">
+            {data.map((item) => (
+              <li>{item}</li>
+            ))}
+          </ul>
+        </>
+      );
+    };
+    return <Swap />;
+  },
+  ($container) => {
+    ChildrenSwapState[1]((value: any[]) => {
+      const next = [...value];
+      next.push(next.shift()!);
+      return next;
+    });
+
+    const $ul = $container.querySelector("#list");
+    return $ul != null && $ul.firstChild?.textContent?.includes("2") && $ul.lastChild?.textContent?.includes("1");
+  }
+);
 
 let JSRuntimeReducer: any;
 test(
@@ -506,47 +546,6 @@ test(
   ($container) => {
     JSRuntimeReducer[1]({ type: "RUN" });
     return $container.querySelector("tr.row") != null;
-  }
-).skip();
-
-let ChildrenSwapState: any;
-test(
-  "ChildrenSwap",
-  () => {
-    const Swap = () => {
-      const [data, setData] = (ChildrenSwapState = useState<any[]>(["1", 2, "3", <span>4</span>]));
-
-      const swap = () => {
-        setData((value) => {
-          const next = [...value];
-          next.push(next.shift());
-          return next;
-        });
-      };
-
-      return (
-        <>
-          <button onClick={swap}>Swap</button>
-
-          <ul id="list">
-            {data.map((item) => (
-              <li>{item}</li>
-            ))}
-          </ul>
-        </>
-      );
-    };
-    return <Swap />;
-  },
-  ($container) => {
-    ChildrenSwapState[1]((value) => {
-      const next = [...value];
-      next.push(next.shift());
-      return next;
-    });
-
-    const $ul = $container.querySelector("#list");
-    return $ul != null && $ul.firstChild?.textContent?.includes("2") && $ul.lastChild?.textContent?.includes("1");
   }
 );
 
