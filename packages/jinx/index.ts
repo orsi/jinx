@@ -11,6 +11,7 @@ function renderComponent(
   const component: JSX.ComponentRef = {
     jsxRef,
     jsxChildren: [],
+    jsxChildrenLastRenderStack: [...(previous?.jsxChildren ?? [])],
     props,
     previous,
     render: undefined,
@@ -126,11 +127,23 @@ export function jsx(tag: string | JSX.ComponentFunction, props: JSX.Props, ...ch
       tag,
     },
     childNodes: [],
+    parent: CURRENT_COMPONENT,
     component: undefined,
     node: undefined,
-    previous: CURRENT_COMPONENT?.previous?.jsxChildren.shift(),
   };
-  CURRENT_COMPONENT?.jsxChildren.push(jsxRef);
+
+  if (jsxRef.parent) {
+    let previous = jsxRef.parent.jsxChildrenLastRenderStack[0];
+    if (previous && previous.args.tag === tag) {
+      jsxRef.previous = jsxRef.parent.jsxChildrenLastRenderStack.shift();
+    }
+
+    jsxRef.parent.jsxChildren.push(jsxRef);
+  }
+
+  if (props?.id === "container") {
+    console.log();
+  }
 
   const flattenedChildren = children.flat();
   if (typeof tag === "function") {
@@ -208,10 +221,11 @@ export function useState<V>(initialValue: V | (() => V)) {
   return [value, set] as [V, typeof set];
 }
 
-export function useReducer<S>(reducer: (state: S, action: { type: string }) => S, initialState: S, init?: (s: S) => S) {
+export type Reducer<S, A> = (state: S, action: A) => S;
+export function useReducer<S = any, A = any>(reducer: Reducer<S, A>, initialState: S, init?: (s: S) => S) {
   const [state, index, update] = useCurrentComponentState(init != null ? init(initialState) : initialState);
 
-  const set = (action: { type: string }) => {
+  const set = (action: A) => {
     const nextValue = reducer(state, action);
     update(nextValue, index);
   };
@@ -251,6 +265,7 @@ declare global {
         tag: string | ComponentFunction;
       };
       childNodes: Node[];
+      parent?: ComponentRef;
       component?: ComponentRef;
       node?: Node;
       previous?: JSX.Ref;
@@ -274,6 +289,7 @@ declare global {
 
     type ComponentRef = {
       jsxChildren: Ref[];
+      jsxChildrenLastRenderStack: Ref[];
       jsxRef?: Ref;
       previous?: ComponentRef;
       props: ComponentProps;
