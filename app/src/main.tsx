@@ -40,6 +40,7 @@ function test(
   testResultFn?: (container: HTMLElement) => boolean | undefined
 ) {
   const $testContainer = document.createElement("div");
+  $testContainer.id = `test-${name.toLocaleLowerCase().replace(/ /g, "-")}`;
   $testContainer.style.margin = "16px 24px";
   $testContainer.style.paddingBottom = "16px";
   $testContainer.style.borderBottom = "1px solid lightgrey";
@@ -55,6 +56,7 @@ function test(
 
     const TestResult = testFn();
     const $testResult = document.createElement("div");
+    $testResult.id = `test-result-${name.toLocaleLowerCase().replace(/ /g, "-")}`;
     $testResult.style.margin = "16px 0px 0px 0px";
     $testResult.append(typeof TestResult === "function" ? <TestResult /> : TestResult);
 
@@ -82,14 +84,13 @@ function test(
   };
 }
 
-// const text = "Isolated Fragment";
 // test(
 //   "Isolated Fragment renders",
 //   () => {
-//     return <>{text}</>;
+//     return <>Isolated Fragment</>;
 //   },
 //   ($container) => {
-//     return $container.innerHTML.includes(text);
+//     return $container.innerHTML.includes("Isolated Fragment");
 //   }
 // );
 
@@ -97,30 +98,35 @@ function test(
 // test(
 //   "State update to 2 and isolated fragment stays in dom",
 //   () => {
-//     const IsolatedFragment = <>{text}</>;
-//     const Test = ({ children }: JSX.ChildrenProps) => {
+//     const Test = ({ children }: JSX.PropsWithChildren) => {
 //       state = useState(0);
 //       const [count, setCount] = state;
+
 //       return (
 //         <>
 //           <button
 //             onClick={() => {
-//               console.log("hi", count);
-//               setCount(count + 1);
+//               const nextCount = count + 1;
+//               console.log("nextCount", nextCount);
+//               setCount(nextCount);
 //             }}
 //           >
 //             Push me {count}
 //           </button>
-//           <div>{children}</div>
+//           {children}
 //         </>
 //       );
 //     };
 
-//     return <Test>{IsolatedFragment}</Test>;
+//     return (
+//       <Test>
+//         <>hi</>
+//       </Test>
+//     );
 //   },
 //   ($container) => {
 //     state[1](2);
-//     return $container.innerHTML.includes("Push me 2") && $container.innerHTML.includes(text);
+//     return $container.innerHTML.includes("Push me 2") && $container.innerHTML.includes("hi");
 //   }
 // );
 
@@ -131,7 +137,7 @@ function test(
 //     const fakeReducer = (state: boolean, action: any) => {
 //       switch (action.type) {
 //         case "CHANGE":
-//           return action.value;
+//           return !state;
 //         default:
 //           return state;
 //       }
@@ -146,8 +152,8 @@ function test(
 //     return <ReducerTest />;
 //   },
 //   ($container) => {
-//     reducer[1]({ type: "CHANGE", value: 25 });
-//     return $container.innerText.includes("25");
+//     reducer[1]({ type: "CHANGE" });
+//     return $container.innerText.includes("false");
 //   }
 // );
 
@@ -255,10 +261,10 @@ function test(
 //   () => {
 //     const Counter = ({ count }: { count: number }) => {
 //       return (
-//         <div id="count">count: {count}</div>
-//         // <>
-//         //   {count % 2 === 0 ? <small id="even">EVEN!</small> : <small id="odd">ODD!</small>}
-//         // </>
+//         <div id="count">
+//           count: {count}
+//           {count % 2 === 0 ? <small id="even"> EVEN!</small> : <small id="odd"> ODD!</small>}
+//         </div>
 //       );
 //     };
 
@@ -273,12 +279,15 @@ function test(
 //   ($container) => {
 //     MyComponentState[1](10);
 //     const $countContainer = $container.querySelector("#count") as HTMLElement;
-//     return $countContainer != null && $countContainer.innerText.includes("10");
+//     return (
+//       $countContainer != null && $countContainer.innerText.includes("10") && $countContainer.innerText.includes("EVEN!")
+//     );
 //   }
 // );
 
+// let testButtonState: any;
 // test(
-//   "Nesting",
+//   "Nesting with awkward child test",
 //   () => {
 //     const OneMore = () => " ...hi";
 
@@ -288,11 +297,11 @@ function test(
 //       </span>
 //     );
 
-//     interface TestButton extends JSX.ChildrenProps {
+//     interface TestButton extends JSX.PropsWithChildren {
 //       hi?: string;
 //     }
 //     const TestButton = ({ children, hi }: TestButton) => {
-//       let [count, setCount] = useState(1);
+//       let [count, setCount] = (testButtonState = useState(1));
 
 //       return (
 //         <>
@@ -318,49 +327,53 @@ function test(
 
 //     return <TestButton hi="hello">I'm a child</TestButton>;
 //   },
-//   ($container) => $container.innerText.includes("...hi")
-// );
-
-// let ChildrenSwapState: any;
-// test(
-//   "ChildrenSwap",
-//   () => {
-//     const Swap = () => {
-//       const [data, setData] = (ChildrenSwapState = useState(() => ["1", 2, "3", <span>4</span>]));
-
-//       const swap = () => {
-//         setData((value) => {
-//           const next = [...value];
-//           next.push(next.shift()!);
-//           return next;
-//         });
-//       };
-
-//       return (
-//         <>
-//           <button onClick={swap}>Swap</button>
-
-//           <ul id="list">
-//             {data.map((item) => (
-//               <li>{item}</li>
-//             ))}
-//           </ul>
-//         </>
-//       );
-//     };
-//     return <Swap />;
-//   },
 //   ($container) => {
-//     ChildrenSwapState[1]((value: any[]) => {
-//       const next = [...value];
-//       next.push(next.shift()!);
-//       return next;
-//     });
-
-//     const $ul = $container.querySelector("#list");
-//     return $ul != null && $ul.firstChild?.textContent?.includes("2") && $ul.lastChild?.textContent?.includes("1");
+//     testButtonState[1](2);
+//     const awkwardChild = $container.childNodes[6];
+//     return $container.innerText.includes("...hi") && awkwardChild == null;
 //   }
 // );
+
+let ChildrenSwapState: any;
+test(
+  "ChildrenSwap",
+  () => {
+    const Swap = () => {
+      const [data, setData] = (ChildrenSwapState = useState(() => ["1", 2, "3", <span>4</span>]));
+
+      const swap = () => {
+        setData((value) => {
+          const next = [...value];
+          next.push(next.shift()!);
+          return next;
+        });
+      };
+
+      return (
+        <>
+          <button onClick={swap}>Swap</button>
+
+          <ul id="list">
+            {data.map((item) => (
+              <li>{item}</li>
+            ))}
+          </ul>
+        </>
+      );
+    };
+    return <Swap />;
+  },
+  ($container) => {
+    ChildrenSwapState[1]((value: any[]) => {
+      const next = [...value];
+      next.push(next.shift()!);
+      return next;
+    });
+
+    const $ul = $container.querySelector("#list");
+    return $ul != null && $ul.firstChild?.textContent?.includes("2") && $ul.lastChild?.textContent?.includes("1");
+  }
+);
 
 // let CreateRowReducer: any;
 // test(
@@ -453,12 +466,11 @@ function test(
 //   "RemoveRowReducerTest",
 //   () => {
 //     const RemoveRowReducerTest = () => {
-//       const [data] = (RemoveRowReducer = useReducer(
+//       const [data, dispatch] = (RemoveRowReducer = useReducer(
 //         (state, action) => {
 //           switch (action.type) {
-//             case "REMOVE": {
-//               const idx = state.findIndex((d: any) => d.id === action.id);
-//               return [...state.slice(0, idx), ...state.slice(idx + 1)];
+//             case "CLEAR": {
+//               return [];
 //             }
 //             default:
 //               return state;
@@ -473,225 +485,219 @@ function test(
 //             id: 2,
 //             label: `item-2`,
 //           },
-//           {
-//             id: 3,
-//             label: `item-3`,
-//           },
 //         ]
 //       ));
 
 //       return (
 //         <div id="container">
-//           <div id="before">Before</div>
 //           {data.map((item) => (
 //             <div id={`item-${item.id}`}>
-//               {item.id}
+//               {/* {item.id} */}
 //               {/* Why does adding this nested <td> break? */}
-//               {/* <td class="col-md-1">{item.id}</td> */}
+//               <div id={`item-nested-${item.id}`}>{item.id}</div>
 //             </div>
 //           ))}
 //           <div id="after">After</div>
+//           <button onClick={() => dispatch({ type: "CLEAR" })}>clear</button>
 //         </div>
 //       );
 //     };
 //     return <RemoveRowReducerTest />;
 //   },
 //   ($container) => {
-//     RemoveRowReducer[1]({ type: "REMOVE", id: 2 });
+//     RemoveRowReducer[1]({ type: "CLEAR", id: 2 });
 //     return (
-//       $container.querySelector("#before") != null &&
-//       $container.querySelector("#item-1") != null &&
+//       $container.querySelector("#item-1") == null &&
 //       $container.querySelector("#item-2") == null &&
-//       $container.querySelector("#item-3") != null &&
 //       $container.querySelector("#after") != null
 //     );
 //   }
 // );
 
-let JSRuntimeReducer: any;
-test(
-  "JSRuntimeTest",
-  () => {
-    const random = (max: number) => Math.round(Math.random() * 1000) % max;
-    const A = [
-      "pretty",
-      "large",
-      "big",
-      "small",
-      "tall",
-      "short",
-      "long",
-      "handsome",
-      "plain",
-      "quaint",
-      "clean",
-      "elegant",
-      "easy",
-      "angry",
-      "crazy",
-      "helpful",
-      "mushy",
-      "odd",
-      "unsightly",
-      "adorable",
-      "important",
-      "inexpensive",
-      "cheap",
-      "expensive",
-      "fancy",
-    ];
-    const C = ["red", "yellow", "blue", "green", "pink", "brown", "purple", "brown", "white", "black", "orange"];
-    const N = [
-      "table",
-      "chair",
-      "house",
-      "bbq",
-      "desk",
-      "car",
-      "pony",
-      "cookie",
-      "sandwich",
-      "burger",
-      "pizza",
-      "mouse",
-      "keyboard",
-    ];
+// let JSRuntimeReducer: any;
+// test(
+//   "JSRuntimeTest",
+//   () => {
+//     const random = (max: number) => Math.round(Math.random() * 1000) % max;
+//     const A = [
+//       "pretty",
+//       "large",
+//       "big",
+//       "small",
+//       "tall",
+//       "short",
+//       "long",
+//       "handsome",
+//       "plain",
+//       "quaint",
+//       "clean",
+//       "elegant",
+//       "easy",
+//       "angry",
+//       "crazy",
+//       "helpful",
+//       "mushy",
+//       "odd",
+//       "unsightly",
+//       "adorable",
+//       "important",
+//       "inexpensive",
+//       "cheap",
+//       "expensive",
+//       "fancy",
+//     ];
+//     const C = ["red", "yellow", "blue", "green", "pink", "brown", "purple", "brown", "white", "black", "orange"];
+//     const N = [
+//       "table",
+//       "chair",
+//       "house",
+//       "bbq",
+//       "desk",
+//       "car",
+//       "pony",
+//       "cookie",
+//       "sandwich",
+//       "burger",
+//       "pizza",
+//       "mouse",
+//       "keyboard",
+//     ];
 
-    let nextId = 1;
+//     let nextId = 1;
 
-    const buildData = (
-      count: number
-    ): {
-      id: number;
-      label: string;
-    }[] => {
-      const data = new Array(count);
+//     const buildData = (
+//       count: number
+//     ): {
+//       id: number;
+//       label: string;
+//     }[] => {
+//       const data = new Array(count);
 
-      for (let i = 0; i < count; i++) {
-        data[i] = {
-          id: nextId++,
-          label: `${A[random(A.length)]} ${C[random(C.length)]} ${N[random(N.length)]}`,
-        };
-      }
+//       for (let i = 0; i < count; i++) {
+//         data[i] = {
+//           id: nextId++,
+//           label: `${A[random(A.length)]} ${C[random(C.length)]} ${N[random(N.length)]}`,
+//         };
+//       }
 
-      return data;
-    };
+//       return data;
+//     };
 
-    const initialState = { data: [], selected: 0 } as {
-      data: ReturnType<typeof buildData>;
-      selected: number;
-    };
+//     const initialState = { data: [], selected: 0 } as {
+//       data: ReturnType<typeof buildData>;
+//       selected: number;
+//     };
 
-    const listReducer = (state: typeof initialState, action: any) => {
-      const { data, selected } = state;
+//     const listReducer = (state: typeof initialState, action: any) => {
+//       const { data, selected } = state;
 
-      switch (action.type) {
-        case "RUN":
-          return { data: buildData(1000), selected: 0 };
-        case "RUN_LOTS":
-          return { data: buildData(10000), selected: 0 };
-        case "ADD":
-          return { data: data.concat(buildData(1000)), selected };
-        case "UPDATE": {
-          const newData = data.slice(0);
+//       switch (action.type) {
+//         case "RUN":
+//           return { data: buildData(1000), selected: 0 };
+//         case "RUN_LOTS":
+//           return { data: buildData(10000), selected: 0 };
+//         case "ADD":
+//           return { data: data.concat(buildData(1000)), selected };
+//         case "UPDATE": {
+//           const newData = data.slice(0);
 
-          for (let i = 0; i < newData.length; i += 10) {
-            const r = newData[i];
+//           for (let i = 0; i < newData.length; i += 10) {
+//             const r = newData[i];
 
-            newData[i] = { id: r.id, label: r.label + " !!!" };
-          }
+//             newData[i] = { id: r.id, label: r.label + " !!!" };
+//           }
 
-          return { data: newData, selected };
-        }
-        case "CLEAR":
-          return { data: [], selected: 0 };
-        case "SWAP_ROWS":
-          const newdata = [...data];
-          if (data.length > 998) {
-            const d1 = newdata[1];
-            const d998 = newdata[998];
-            newdata[1] = d998;
-            newdata[998] = d1;
-          }
-          return { data: newdata, selected };
-        case "REMOVE": {
-          const idx = data.findIndex((d: any) => d.id === action.id);
+//           return { data: newData, selected };
+//         }
+//         case "CLEAR":
+//           return { data: [], selected: 0 };
+//         case "SWAP_ROWS":
+//           const newdata = [...data];
+//           if (data.length > 998) {
+//             const d1 = newdata[1];
+//             const d998 = newdata[998];
+//             newdata[1] = d998;
+//             newdata[998] = d1;
+//           }
+//           return { data: newdata, selected };
+//         case "REMOVE": {
+//           const idx = data.findIndex((d: any) => d.id === action.id);
 
-          return {
-            data: [...data.slice(0, idx), ...data.slice(idx + 1)],
-            selected,
-          };
-        }
-        case "SELECT":
-          return { data, selected: action.id };
-        default:
-          return state;
-      }
-    };
+//           return {
+//             data: [...data.slice(0, idx), ...data.slice(idx + 1)],
+//             selected,
+//           };
+//         }
+//         case "SELECT":
+//           return { data, selected: action.id };
+//         default:
+//           return state;
+//       }
+//     };
 
-    const Row = ({ selected, item, dispatch }: any) => (
-      <tr class={`row${selected ? " danger" : ""}`}>
-        <td class="col-md-1">{item.id}</td>
-        <td class="col-md-4">
-          <a onClick={() => dispatch({ type: "SELECT", id: item.id })}>{item.label}</a>
-        </td>
-        <td class="col-md-1">
-          <a onClick={() => dispatch({ type: "REMOVE", id: item.id })}>
-            <span class="glyphicon glyphicon-remove" aria-hidden="true" />
-          </a>
-        </td>
-        <td class="col-md-6" />
-      </tr>
-    );
+//     const Row = ({ selected, item, dispatch }: any) => (
+//       <tr class={`row${selected ? " danger" : ""}`}>
+//         <td class="col-md-1">{item.id}</td>
+//         <td class="col-md-4">
+//           <a onClick={() => dispatch({ type: "SELECT", id: item.id })}>{item.label}</a>
+//         </td>
+//         <td class="col-md-1">
+//           <a onClick={() => dispatch({ type: "REMOVE", id: item.id })}>
+//             <span class="glyphicon glyphicon-remove" aria-hidden="true" />
+//           </a>
+//         </td>
+//         <td class="col-md-6" />
+//       </tr>
+//     );
 
-    const Button = ({ id, cb, title }: any) => (
-      <button type="button" class="btn btn-primary btn-block" id={id} onClick={cb}>
-        {title}
-      </button>
-    );
+//     const Button = ({ id, cb, title }: any) => (
+//       <button type="button" class="btn btn-primary btn-block" id={id} onClick={cb}>
+//         {title}
+//       </button>
+//     );
 
-    const Main = () => {
-      JSRuntimeReducer = useReducer(listReducer, initialState);
-      const [{ data, selected }, dispatch] = JSRuntimeReducer;
+//     const Main = () => {
+//       JSRuntimeReducer = useReducer(listReducer, initialState);
+//       const [{ data, selected }, dispatch] = JSRuntimeReducer;
 
-      return (
-        <>
-          <div class="jumbotron">
-            <div id="header" class="row">
-              <div class="col-md-6">
-                <h1>JINX</h1>
-              </div>
-              <div class="col-md-6">
-                <div class="row">
-                  <Button id="run" title="Create 1,000 rows" cb={() => dispatch({ type: "RUN" })} />
-                  <Button id="runlots" title="Create 10,000 rows" cb={() => dispatch({ type: "RUN_LOTS" })} />
-                  <Button id="add" title="Append 1,000 rows" cb={() => dispatch({ type: "ADD" })} />
-                  <Button id="update" title="Update every 10th row" cb={() => dispatch({ type: "UPDATE" })} />
-                  <Button id="clear" title="Clear" cb={() => dispatch({ type: "CLEAR" })} />
-                  <Button id="swaprows" title="Swap Rows" cb={() => dispatch({ type: "SWAP_ROWS" })} />
-                </div>
-              </div>
-            </div>
-          </div>
+//       return (
+//         <>
+//           <div class="jumbotron">
+//             <div id="header" class="row">
+//               <div class="col-md-6">
+//                 <h1>JINX</h1>
+//               </div>
+//               <div class="col-md-6">
+//                 <div class="row">
+//                   <Button id="run" title="Create 1,000 rows" cb={() => dispatch({ type: "RUN" })} />
+//                   <Button id="runlots" title="Create 10,000 rows" cb={() => dispatch({ type: "RUN_LOTS" })} />
+//                   <Button id="add" title="Append 1,000 rows" cb={() => dispatch({ type: "ADD" })} />
+//                   <Button id="update" title="Update every 10th row" cb={() => dispatch({ type: "UPDATE" })} />
+//                   <Button id="clear" title="Clear" cb={() => dispatch({ type: "CLEAR" })} />
+//                   <Button id="swaprows" title="Swap Rows" cb={() => dispatch({ type: "SWAP_ROWS" })} />
+//                 </div>
+//               </div>
+//             </div>
+//           </div>
 
-          <table class="table table-hover table-striped test-data">
-            <tbody>
-              {data.map((item: any) => (
-                <Row item={item} selected={selected === item.id} dispatch={dispatch} />
-              ))}
-            </tbody>
-          </table>
-          <span class="preloadicon glyphicon glyphicon-remove" aria-hidden="true" />
-        </>
-      );
-    };
-    return <Main />;
-  },
-  ($container) => {
-    JSRuntimeReducer[1]({ type: "RUN" });
-    JSRuntimeReducer[1]({ type: "CLEAR" });
-    return $container.querySelector("#header") != null;
-  }
-);
+//           <table class="table table-hover table-striped test-data">
+//             <tbody>
+//               {data.map((item: any) => (
+//                 <Row item={item} selected={selected === item.id} dispatch={dispatch} />
+//               ))}
+//             </tbody>
+//           </table>
+//           <span class="preloadicon glyphicon glyphicon-remove" aria-hidden="true" />
+//         </>
+//       );
+//     };
+//     return <Main />;
+//   },
+//   ($container) => {
+//     JSRuntimeReducer[1]({ type: "RUN" });
+//     JSRuntimeReducer[1]({ type: "CLEAR" });
+//     return $container.querySelector("#header") != null;
+//   }
+// );
 
 runTests();

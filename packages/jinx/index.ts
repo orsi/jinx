@@ -3,89 +3,222 @@ let CURRENT_COMPONENT: JSX.ComponentRef | undefined;
 function renderComponent(
   tag: JSX.ComponentFunction,
   props: JSX.ComponentProps,
-  stateValues: unknown[],
-  jsxRef?: JSX.Ref,
-  previous?: JSX.ComponentRef
+  stateValues?: unknown[],
+  jsx?: JSX.Ref
 ): JSX.ComponentRef {
-  const currentContext = CURRENT_COMPONENT;
   const component: JSX.ComponentRef = {
-    jsxRef,
-    jsxChildren: [],
-    jsxChildrenLastRenderStack: [...(previous?.jsxChildren ?? [])],
+    jsx,
     props,
-    previous,
-    render: undefined,
+    output: undefined,
     state: {
       index: 0,
-      values: stateValues,
+      values: stateValues ?? [],
     },
     tag,
   };
 
+  const currentContext = CURRENT_COMPONENT;
   CURRENT_COMPONENT = component;
-  component.render = tag(component.props);
+  component.output = tag(component.props);
   CURRENT_COMPONENT = currentContext;
 
   return component;
 }
 
-function renderChildNodes(children: JSX.Child[], parent: Node, previousNodes?: Node[]): Node[] {
-  const nodes: Node[] = [];
-  for (let i = 0; i < children.length; i++) {
-    const lastNode = nodes[nodes.length - 1];
-    const previousNode = previousNodes?.[i];
-    const child = children[i];
-
-    if (typeof child === "boolean") {
-      if (previousNode) {
-        previousNode.textContent = "";
-      }
-    } else if (typeof child === "string" || typeof child === "number") {
-      // accumulate text in one node if the last node was #text
-      if (lastNode?.nodeType === Node.TEXT_NODE) {
-        lastNode.textContent += child.toString();
-        continue;
-      }
-
-      let node = previousNode;
-      if (node && node.nodeType === Node.TEXT_NODE && child !== node.textContent) {
-        node.textContent = child.toString();
-      } else if (node && node.nodeType === Node.TEXT_NODE && child === node.textContent) {
-        // noop
-      } else {
-        node = document.createTextNode(child.toString());
-      }
-      nodes.push(node);
-    } else if (child instanceof DocumentFragment) {
-      nodes.push(...(child._jsxRef?.childNodes ?? []));
-    } else if (child instanceof Node) {
-      nodes.push(child);
-    }
+function renderChild(child: JSX.Child): Node | undefined {
+  if (child instanceof Node) {
+    return child;
+  } else if (typeof child === "string" || typeof child === "number") {
+    const text = child.toString();
+    const node = document.createTextNode(text);
+    return node;
+  } else if (typeof child === "boolean") {
+    return undefined;
+  } else {
+    return undefined;
   }
+}
 
-  const childrenMaxLength = Math.max(nodes.length, previousNodes?.length ?? 0);
-  for (let i = 0; i < childrenMaxLength; i++) {
-    const previousNode = previousNodes?.[i];
-    const node: Node | undefined = nodes[i];
-    if (!previousNode && node) {
-      parent.appendChild(node);
-    } else if (previousNode && node && previousNode !== node && parent.contains(previousNode)) {
-      parent.replaceChild(node, previousNode);
-    } else if (previousNode && node && previousNode !== node) {
-      parent.appendChild(node);
+function renderChildren(children?: JSX.Children[]) {
+  const nodes: JSX.NodeOrNodeArray = [];
+
+  let lastNode: Node | undefined;
+  for (const child of children ?? []) {
+    // accumulate text in one node if the last node was #text
+    if ((typeof child === "string" || typeof child === "number") && lastNode?.nodeType === Node.TEXT_NODE) {
+      lastNode.textContent += child.toString();
+      continue;
+    }
+
+    if (Array.isArray(child)) {
+      const nodeArray = renderChildren(child);
+      nodes.push(nodeArray);
+    } else if (child instanceof Node) {
+      if (child.__jsx && child.__jsx.children && !child.__jsx.childNodes) {
+        const childNodes = renderChildren(child.__jsx.children);
+        child.__jsx.childNodes = childNodes;
+      }
+      nodes.push(child);
     } else {
-      console.log();
+      const node = renderChild(child);
+      lastNode = node;
+      if (node) {
+        nodes.push(node);
+      }
     }
   }
 
   return nodes;
 }
 
-function renderElement(tagName: string, props: JSX.Props, lastRender?: JSX.Ref) {
-  const element = (lastRender?.node as HTMLElement) ?? document.createElement(tagName);
-  const lastProps = lastRender?.args.props;
+function attachTree(node: Node, childNodes?: JSX.NodeOrNodeArray) {
+  for (const child of childNodes ?? []) {
+    if (Array.isArray(child)) {
+      attachTree(node, child);
+    } else {
+      if (child.__jsx?.childNodes) {
+        attachTree(child, child.__jsx.childNodes);
+      }
 
-  // remove previous
+      node.appendChild(child);
+    }
+  }
+
+  if (node instanceof HTMLElement) {
+    setProps(node, node.__jsx?.args.props);
+  }
+}
+
+export function jsx(tag: string | JSX.ComponentFunction, props: JSX.Props, ...children: JSX.Children[]): Node {
+  const jsx: JSX.Ref = {
+    args: {
+      children,
+      props,
+      tag,
+    },
+  };
+
+  if (typeof tag === "function") {
+    const component = renderComponent(tag, { ...props, children }, undefined, jsx);
+    const node = document.createDocumentFragment();
+
+    jsx.component = component;
+    jsx.node = node;
+    if (Array.isArray(component.output)) {
+      jsx.children = component.output;
+    } else if (component.output) {
+      jsx.children = [component.output];
+    }
+  } else {
+    const element = document.createElement(tag);
+    jsx.node = element;
+    jsx.children = children;
+  }
+  jsx.node.__jsx = jsx;
+
+  // only render children when this is the top-level JSX element
+  if (!CURRENT_COMPONENT) {
+    const childNodes = renderChildren(jsx.children);
+    jsx.childNodes = childNodes;
+    attachTree(jsx.node, jsx.childNodes);
+  }
+
+  return jsx.node;
+}
+
+export function Fragment(props: JSX.PropsWithChildren) {
+  return props.children;
+}
+
+type DomParentAndFirstChild = {
+  parent: Node | null;
+  firstChild: Node;
+  firstChildIndex: number;
+};
+function findDomParent(node: Node | JSX.NodeOrNodeArray): DomParentAndFirstChild | undefined {
+  let dom: DomParentAndFirstChild | undefined;
+  if (node instanceof DocumentFragment) {
+    for (const child of node.__jsx?.childNodes ?? []) {
+      dom = findDomParent(child);
+      if (dom) {
+        break;
+      }
+    }
+  } else if (Array.isArray(node)) {
+    for (const child of node) {
+      dom = findDomParent(child);
+      if (dom) {
+        break;
+      }
+    }
+  } else {
+    dom = {
+      parent: node.parentNode,
+      firstChild: node,
+      firstChildIndex: [...(node.parentNode?.childNodes ?? [])].findIndex((el) => el === node),
+    };
+  }
+
+  return dom;
+}
+
+function removeTree(node?: JSX.NodeOrNodeArray[number]) {
+  if (Array.isArray(node)) {
+    for (const subNode of node) {
+      removeTree(subNode);
+    }
+  } else {
+    node?.parentNode?.removeChild(node);
+  }
+}
+
+function reconcile(
+  domParent: Node,
+  firstChild: Node,
+  startIndex: number,
+  previous?: JSX.NodeOrNodeArray[number],
+  next?: JSX.NodeOrNodeArray[number]
+) {
+  if (Array.isArray(next)) {
+    // next is an array
+    if (Array.isArray(previous)) {
+      const maxLength = Math.max(previous.length, next.length);
+      for (let i = 0; i < maxLength; i++) {
+        reconcile(domParent, firstChild, startIndex, previous[i], next[i]);
+      }
+    } else {
+      removeTree(previous);
+    }
+  } else if (next instanceof Node) {
+    // next is a node now!
+    if (Array.isArray(previous)) {
+      removeTree(previous);
+    } else if (next.nodeName !== previous?.nodeName || !previous) {
+      removeTree(previous);
+    } else {
+      // next and previous are both nodes
+      if (next instanceof Text) {
+        previous.textContent = next.textContent;
+      } else if (next instanceof DocumentFragment) {
+        reconcile(domParent, firstChild, startIndex, previous?.__jsx?.childNodes, next?.__jsx?.childNodes);
+      } else if (next instanceof HTMLElement) {
+        // same node in same slot, so reuse previous
+        reconcile(previous, firstChild, startIndex, previous?.__jsx?.childNodes, next?.__jsx?.childNodes);
+        setProps(previous as HTMLElement, next.__jsx?.args.props, previous.__jsx?.args.props);
+        previous.__jsx!.args = next.__jsx!.args;
+      } else {
+        domParent.replaceChild(next, previous);
+        setProps(next as HTMLElement, next.__jsx?.args.props, previous?.__jsx?.args.props);
+      }
+    }
+  } else {
+    // next no longer exists, remove everything previous
+    removeTree(previous);
+  }
+}
+
+function setProps(element: HTMLElement, props?: JSX.Props, lastProps?: JSX.Props) {
+  // remove last
   for (const [prop, value] of Object.entries(lastProps ?? {})) {
     const isEvent = prop.startsWith("on") && prop.substring(2).toLowerCase() in element;
     if (isEvent) {
@@ -100,7 +233,7 @@ function renderElement(tagName: string, props: JSX.Props, lastRender?: JSX.Ref) 
     }
   }
 
-  // set props
+  // set new
   for (const [prop, value] of Object.entries(props ?? {})) {
     const isEvent = prop.startsWith("on") && prop.substring(2).toLowerCase() in element;
     if (isEvent) {
@@ -115,70 +248,6 @@ function renderElement(tagName: string, props: JSX.Props, lastRender?: JSX.Ref) 
       element.setAttribute(prop, value as string);
     }
   }
-
-  return element;
-}
-
-export function jsx(tag: string | JSX.ComponentFunction, props: JSX.Props, ...children: JSX.Children): Node {
-  const jsxRef: JSX.Ref = {
-    args: {
-      children,
-      props,
-      tag,
-    },
-    childNodes: [],
-    parent: CURRENT_COMPONENT,
-    component: undefined,
-    node: undefined,
-  };
-
-  if (jsxRef.parent) {
-    let previous = jsxRef.parent.jsxChildrenLastRenderStack[0];
-    if (previous && previous.args.tag === tag) {
-      jsxRef.previous = jsxRef.parent.jsxChildrenLastRenderStack.shift();
-    }
-
-    jsxRef.parent.jsxChildren.push(jsxRef);
-  }
-
-  if (props?.id === "container") {
-    console.log();
-  }
-
-  const flattenedChildren = children.flat();
-  if (typeof tag === "function") {
-    jsxRef.component = renderComponent(
-      tag,
-      { ...props, children: flattenedChildren },
-      jsxRef.previous?.component?.state.values ?? [],
-      jsxRef,
-      jsxRef.previous?.component
-    );
-
-    if (typeof jsxRef.component.render === "boolean") {
-      jsxRef.node = document.createComment("");
-    } else if (jsxRef.component.render instanceof Node) {
-      jsxRef.node = jsxRef.component.render;
-    } else if (typeof jsxRef.component.render === "string" || typeof jsxRef.component.render === "number") {
-      const textNode = document.createTextNode(jsxRef.component.render.toString());
-      jsxRef.node = textNode;
-    } else if (Array.isArray(jsxRef.component.render)) {
-      jsxRef.node = jsxRef.previous?.node ?? document.createDocumentFragment();
-      jsxRef.childNodes = renderChildNodes(jsxRef.component.render, jsxRef.node, jsxRef.previous?.childNodes);
-    } else {
-      throw Error("Unknown component result");
-    }
-  } else {
-    jsxRef.node = renderElement(tag, props, jsxRef.previous);
-    jsxRef.childNodes = renderChildNodes(flattenedChildren, jsxRef.node, jsxRef.previous?.childNodes);
-  }
-
-  jsxRef.node._jsxRef = jsxRef;
-  return jsxRef.node;
-}
-
-export function Fragment(props: { children: JSX.Children }) {
-  return props.children;
 }
 
 function useCurrentComponentState<T>(initialValue: T) {
@@ -200,9 +269,34 @@ function useCurrentComponentState<T>(initialValue: T) {
   component.state.index++;
 
   const update = (nextValue: T, index: number) => {
+    if (!component.jsx?.node) {
+      throw new Error("wat");
+    }
+
     const values = [...component.state.values];
     values[index] = nextValue;
-    renderComponent(component.tag, component.props, values, undefined, component);
+
+    const dom = findDomParent(component.jsx.node);
+    if (!dom || !dom.parent) {
+      throw new Error("wat 2");
+    }
+
+    const jsx: JSX.Ref = {
+      ...component.jsx,
+    };
+
+    const render = renderComponent(component.tag, component.props, values, jsx);
+    const normalizedChildren = Array.isArray(render.output)
+      ? render.output
+      : render.output
+      ? [render.output]
+      : undefined;
+    let childNodes: JSX.NodeOrNodeArray | undefined;
+    if (normalizedChildren) {
+      childNodes = renderChildren(normalizedChildren);
+    }
+    const previousChildNodes = component.jsx.childNodes;
+    reconcile(dom.parent, dom.firstChild, dom.firstChildIndex, previousChildNodes, childNodes);
   };
 
   return [value, index, update] as [T, number, (value: T, index: number) => void];
@@ -254,46 +348,43 @@ type IntrinsicHTMLElement<T extends keyof HTMLElementTagNameMap> = Prettify<
 
 declare global {
   interface Node {
-    _jsxRef?: JSX.Ref;
+    __jsx?: JSX.Ref;
   }
 
   namespace JSX {
     type Ref = {
       args: {
-        children: JSX.Children;
+        children: Children[];
         props: Props;
         tag: string | ComponentFunction;
       };
-      childNodes: Node[];
-      parent?: ComponentRef;
+      children?: Children[];
+      childNodes?: NodeOrNodeArray;
       component?: ComponentRef;
       node?: Node;
-      previous?: JSX.Ref;
     };
 
-    type Child = string | number | boolean | Node;
+    // interface NestedNodeArray extends Array<NestedNodeArray | Node> {}
+    type NodeOrNodeArray = (NodeOrNodeArray | Node)[];
 
-    type ChildOrChildArray = Child | Child[];
+    type Child = string | number | boolean | Node | Child[];
 
-    type Children = ChildOrChildArray[];
+    type Children = Child | Child[];
 
     type RenderedChildren = Node[];
 
-    type ChildrenProps = { children: Child | Child[] };
-
     type Props = Record<string, unknown> | null;
 
-    type ComponentProps = Props & ChildrenProps;
+    type PropsWithChildren = { children: Children };
 
-    type ComponentFunction<T = any> = (props: Props & T) => ChildOrChildArray;
+    type ComponentProps = Props & PropsWithChildren;
+
+    type ComponentFunction<T = any> = (props: ComponentProps & T) => Children;
 
     type ComponentRef = {
-      jsxChildren: Ref[];
-      jsxChildrenLastRenderStack: Ref[];
-      jsxRef?: Ref;
-      previous?: ComponentRef;
+      jsx?: Ref;
+      output?: ReturnType<ComponentFunction>;
       props: ComponentProps;
-      render?: ReturnType<ComponentFunction>;
       state: {
         index: number;
         values: unknown[];
