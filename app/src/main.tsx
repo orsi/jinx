@@ -431,6 +431,30 @@ function test(
 //   }
 // );
 
+let ChildrenShrinkingState: any;
+test(
+  "ChildrenShrinking",
+  () => {
+    const ChildrenShrinking = () => {
+      const [data] = (ChildrenShrinkingState = useState([1, 2, 3]));
+      return (
+        <>
+          <div id="start">start</div>
+          {data.map((i) => (
+            <span id={`item-${i}`}>a. {i}, </span>
+          ))}
+          <div id="end">end</div>
+        </>
+      );
+    };
+    return <ChildrenShrinking />;
+  },
+  ($container) => {
+    ChildrenShrinkingState[1]([]);
+    return $container.childNodes[1]?.textContent?.includes("end");
+  }
+);
+
 let ChildrenGrowingState: any;
 test(
   "ChildrenGrowing",
@@ -458,6 +482,7 @@ test(
     );
   }
 );
+
 // let CreateRowReducer: any;
 // test(
 //   "CreateRowReducerTest",
