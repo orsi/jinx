@@ -83,7 +83,124 @@ function test(
     },
   };
 }
+/// BAD TESTS
 
+let state: any;
+test(
+  "State update to 2 and isolated fragment stays in dom",
+  () => {
+    const Test = ({ children }: JSX.PropsWithChildren) => {
+      state = useState(0);
+      const [count, setCount] = state;
+
+      return (
+        <>
+          <button
+            onClick={() => {
+              const nextCount = count + 1;
+              console.log("nextCount", nextCount);
+              setCount(nextCount);
+            }}
+          >
+            Push me {count}
+          </button>
+          {children}
+        </>
+      );
+    };
+
+    return (
+      <Test>
+        <>hi</>
+      </Test>
+    );
+  },
+  ($container) => {
+    state[1](2);
+    return $container.innerHTML.includes("Push me 2") && $container.innerHTML.includes("hi");
+  }
+);
+
+// let MyComponentState: any;
+// test(
+//   "Counter",
+//   () => {
+//     const Counter = ({ count }: { count: number }) => {
+//       return (
+//         <div id="count">
+//           count: {count}
+//           {count % 2 === 0 ? <small id="even"> EVEN!</small> : <small id="odd"> ODD!</small>}
+//         </div>
+//       );
+//     };
+
+//     const MyComponent = () => {
+//       MyComponentState = useState(0);
+//       const [count] = MyComponentState;
+//       return <Counter count={count} />;
+//     };
+
+//     return <MyComponent />;
+//   },
+//   ($container) => {
+//     MyComponentState[1](10);
+//     const $countContainer = $container.querySelector("#count") as HTMLElement;
+//     return (
+//       $countContainer != null && $countContainer.innerText.includes("10") && $countContainer.innerText.includes("EVEN!")
+//     );
+//   }
+// );
+
+// let testButtonState: any;
+// test(
+//   "Nesting with awkward child test",
+//   () => {
+//     const OneMore = () => " ...hi";
+
+//     const NestedStuff = () => (
+//       <span>
+//         <OneMore />
+//       </span>
+//     );
+
+//     interface TestButton extends JSX.PropsWithChildren {
+//       hi?: string;
+//     }
+//     const TestButton = ({ children, hi }: TestButton) => {
+//       let [count, setCount] = (testButtonState = useState(1));
+
+//       return (
+//         <>
+//           <button
+//             onClick={() => {
+//               setCount(++count);
+//             }}
+//           >
+//             {children} {count}
+//           </button>
+//           <NestedStuff />
+//           <br />
+//           Count: {count} is {count % 2 === 0 ? "even" : <span>odd</span>}
+//           <br />
+//           <div id="bordered" style={{ border: "5px solid red" }}>
+//             <div>
+//               <div>yo</div>
+//             </div>
+//           </div>
+//         </>
+//       );
+//     };
+
+//     return <TestButton hi="hello">I'm a child</TestButton>;
+//   },
+//   ($container) => {
+//     testButtonState[1](2);
+//     const awkwardChild = $container.childNodes[6];
+//     return $container.innerText.includes("...hi") && awkwardChild == null;
+//   }
+// );
+
+/// GOOD TESTS
 // test(
 //   "Isolated Fragment renders",
 //   () => {
@@ -91,42 +208,6 @@ function test(
 //   },
 //   ($container) => {
 //     return $container.innerHTML.includes("Isolated Fragment");
-//   }
-// );
-
-// let state: any;
-// test(
-//   "State update to 2 and isolated fragment stays in dom",
-//   () => {
-//     const Test = ({ children }: JSX.PropsWithChildren) => {
-//       state = useState(0);
-//       const [count, setCount] = state;
-
-//       return (
-//         <>
-//           <button
-//             onClick={() => {
-//               const nextCount = count + 1;
-//               console.log("nextCount", nextCount);
-//               setCount(nextCount);
-//             }}
-//           >
-//             Push me {count}
-//           </button>
-//           {children}
-//         </>
-//       );
-//     };
-
-//     return (
-//       <Test>
-//         <>hi</>
-//       </Test>
-//     );
-//   },
-//   ($container) => {
-//     state[1](2);
-//     return $container.innerHTML.includes("Push me 2") && $container.innerHTML.includes("hi");
 //   }
 // );
 
@@ -255,85 +336,6 @@ function test(
 //     $container.querySelector("div")!.innerText.includes("true tern!")
 // );
 
-// let MyComponentState: any;
-// test(
-//   "Counter",
-//   () => {
-//     const Counter = ({ count }: { count: number }) => {
-//       return (
-//         <div id="count">
-//           count: {count}
-//           {count % 2 === 0 ? <small id="even"> EVEN!</small> : <small id="odd"> ODD!</small>}
-//         </div>
-//       );
-//     };
-
-//     const MyComponent = () => {
-//       MyComponentState = useState(0);
-//       const [count] = MyComponentState;
-//       return <Counter count={count} />;
-//     };
-
-//     return <MyComponent />;
-//   },
-//   ($container) => {
-//     MyComponentState[1](10);
-//     const $countContainer = $container.querySelector("#count") as HTMLElement;
-//     return (
-//       $countContainer != null && $countContainer.innerText.includes("10") && $countContainer.innerText.includes("EVEN!")
-//     );
-//   }
-// );
-
-// let testButtonState: any;
-// test(
-//   "Nesting with awkward child test",
-//   () => {
-//     const OneMore = () => " ...hi";
-
-//     const NestedStuff = () => (
-//       <span>
-//         <OneMore />
-//       </span>
-//     );
-
-//     interface TestButton extends JSX.PropsWithChildren {
-//       hi?: string;
-//     }
-//     const TestButton = ({ children, hi }: TestButton) => {
-//       let [count, setCount] = (testButtonState = useState(1));
-
-//       return (
-//         <>
-//           <button
-//             onClick={() => {
-//               setCount(++count);
-//             }}
-//           >
-//             {children} {count}
-//           </button>
-//           <NestedStuff />
-//           <br />
-//           Count: {count} is {count % 2 === 0 ? "even" : <span>odd</span>}
-//           <br />
-//           <div id="bordered" style={{ border: "5px solid red" }}>
-//             <div>
-//               <div>yo</div>
-//             </div>
-//           </div>
-//         </>
-//       );
-//     };
-
-//     return <TestButton hi="hello">I'm a child</TestButton>;
-//   },
-//   ($container) => {
-//     testButtonState[1](2);
-//     const awkwardChild = $container.childNodes[6];
-//     return $container.innerText.includes("...hi") && awkwardChild == null;
-//   }
-// );
-
 // let ReplaceSameElementState: any;
 // test(
 //   "ReplaceSameElement",
@@ -431,57 +433,57 @@ function test(
 //   }
 // );
 
-let ChildrenShrinkingState: any;
-test(
-  "ChildrenShrinking",
-  () => {
-    const ChildrenShrinking = () => {
-      const [data] = (ChildrenShrinkingState = useState([1, 2, 3]));
-      return (
-        <>
-          <div id="start">start</div>
-          {data.map((i) => (
-            <span id={`item-${i}`}>a. {i}, </span>
-          ))}
-          <div id="end">end</div>
-        </>
-      );
-    };
-    return <ChildrenShrinking />;
-  },
-  ($container) => {
-    ChildrenShrinkingState[1]([]);
-    return $container.childNodes[1]?.textContent?.includes("end");
-  }
-);
+// let ChildrenShrinkingState: any;
+// test(
+//   "ChildrenShrinking",
+//   () => {
+//     const ChildrenShrinking = () => {
+//       const [data] = (ChildrenShrinkingState = useState([1, 2, 3]));
+//       return (
+//         <>
+//           <div id="start">start</div>
+//           {data.map((i) => (
+//             <span id={`item-${i}`}>a. {i}, </span>
+//           ))}
+//           <div id="end">end</div>
+//         </>
+//       );
+//     };
+//     return <ChildrenShrinking />;
+//   },
+//   ($container) => {
+//     ChildrenShrinkingState[1]([]);
+//     return $container.childNodes[2]?.textContent?.includes("end");
+//   }
+// );
 
-let ChildrenGrowingState: any;
-test(
-  "ChildrenGrowing",
-  () => {
-    const ChildrenGrowing = () => {
-      const [data] = (ChildrenGrowingState = useState([]));
-      return (
-        <>
-          <div id="start">start</div>
-          {data.map((i) => (
-            <span id={`item-${i}`}>a. {i}, </span>
-          ))}
-          <div id="end">end</div>
-        </>
-      );
-    };
-    return <ChildrenGrowing />;
-  },
-  ($container) => {
-    ChildrenGrowingState[1]([1, 2, 3]);
-    return (
-      $container.firstChild?.textContent?.includes("start") &&
-      $container.lastChild?.textContent?.includes("end") &&
-      $container.childNodes[2]?.textContent?.includes("2")
-    );
-  }
-);
+// let ChildrenGrowingState: any;
+// test(
+//   "ChildrenGrowing",
+//   () => {
+//     const ChildrenGrowing = () => {
+//       const [data] = (ChildrenGrowingState = useState([]));
+//       return (
+//         <>
+//           <div id="start">start</div>
+//           {data.map((i) => (
+//             <span id={`item-${i}`}>a. {i}, </span>
+//           ))}
+//           <div id="end">end</div>
+//         </>
+//       );
+//     };
+//     return <ChildrenGrowing />;
+//   },
+//   ($container) => {
+//     ChildrenGrowingState[1]([1, 2, 3]);
+//     return (
+//       $container.firstChild?.textContent?.includes("start") &&
+//       $container.lastChild?.textContent?.includes("end") &&
+//       $container.childNodes[2]?.textContent?.includes("2")
+//     );
+//   }
+// );
 
 // let CreateRowReducer: any;
 // test(

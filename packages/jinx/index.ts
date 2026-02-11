@@ -3,11 +3,13 @@ let CURRENT_COMPONENT: JSX.ComponentRef | undefined;
 export function jsx(tag: string | JSX.ComponentFunction, props: JSX.Props, ...children: JSX.Child[]): Node {
   let node: Node;
   if (typeof tag === "function") {
-    node = renderComponent(tag, { ...props, children }, []);
+    const component = renderComponent(tag, { ...props, children }, []);
+    node = component.node!;
   } else {
     node = document.createElement(tag);
     node.__children = children;
     node.__childNodes = [];
+    node.__props = props;
     for (const child of children) {
       const childNode = renderChild(child);
       node.__childNodes.push(childNode);
@@ -17,6 +19,7 @@ export function jsx(tag: string | JSX.ComponentFunction, props: JSX.Props, ...ch
   // prepare for insertion in dom if not being rendered inside a component
   if (!CURRENT_COMPONENT) {
     prepare(node);
+    attach(node, node.__childNodes);
   }
 
   return node;
@@ -41,13 +44,13 @@ function renderComponent(tag: JSX.ComponentFunction, props: JSX.ComponentProps, 
   component.node = node;
   CURRENT_COMPONENT = currentContext;
 
-  return node;
+  return component;
 }
 
 function renderChild(child: JSX.Child) {
   if (child instanceof Node) {
     return child;
-  } else if (!child || (Array.isArray(child) && child.length === 0)) {
+  } else if (child == null || (Array.isArray(child) && child.length === 0)) {
     return document.createComment("");
   } else if (typeof child === "boolean") {
     return document.createComment(`${child}`);
@@ -109,12 +112,30 @@ function setProps(target: Node, props?: JSX.Props, previousProps?: JSX.Props) {
 function prepare(node: Node) {
   for (const child of node.__childNodes ?? []) {
     prepare(child);
-    node.appendChild(child);
   }
 
   setProps(node, node.__props);
+  return node;
+}
+
+function attach(node: Node, childNodes: Node[] = []) {
+  for (const child of childNodes) {
+    attach(child, child.__childNodes);
+    node.appendChild(child);
+  }
 
   return node;
+}
+
+function findFirstChild(node?: Node): Node | null | undefined {
+  if (node instanceof DocumentFragment) {
+    const firstChild = node.__childNodes?.[0];
+    if (firstChild) {
+      return findFirstChild(firstChild);
+    }
+  } else if (node) {
+    return node;
+  }
 }
 
 function findNextSibling(node?: Node): Node | null | undefined {
@@ -138,65 +159,93 @@ function findParent(node: Node) {
   }
 }
 
-function removeTree(node?: Node) {
-  if (node instanceof DocumentFragment) {
-    for (const child of node.__childNodes ?? []) {
-      removeTree(child);
-    }
+function reconcile(render?: Node | null, next?: Node | null) {
+  // nothing to do
+  if (!next) {
+    return null;
+  }
+
+  // new node
+  if (!render || next.nodeName !== render.nodeName) {
+    prepare(next);
+    attach(next, next.__childNodes);
+    return next;
+  }
+
+  if (next instanceof Text) {
+    return next;
   } else {
-    node?.parentNode?.removeChild(node);
+    const childNodes = next.__childNodes ?? [];
+    const renderChildNodes = render.__childNodes ?? [];
+    const length = Math.max(childNodes.length, renderChildNodes.length);
+    const reconciledNodes: Node[] = [];
+    for (let i = 0; i < length; i++) {
+      const childNode = childNodes[i];
+      const renderChildNode = renderChildNodes[i];
+      const node = reconcile(renderChildNode, childNode);
+      if (!node) {
+        continue;
+      }
+      reconciledNodes.push(node);
+    }
+
+    setProps(render, next.__props, render.__props);
+    render.__childNodes = reconciledNodes;
+    render.__children = next.__children;
+
+    return render;
   }
 }
 
-function reconcile(parent: Node, nextSibling: Node | null, render?: Node | null, next?: Node | null) {
-  if (!next) {
-    if (render) {
-      parent.removeChild(render);
-    }
-    return;
-  }
-
-  let node = next;
-  if (next instanceof Element && next.nodeName === render?.nodeName) {
-    node = render;
-  }
-
-  if (next instanceof DocumentFragment) {
-    const childNodes = next.__childNodes ?? [];
-    const renderChildNodes = render?.__childNodes ?? [];
-    for (let i = 0; i < childNodes.length; i++) {
-      const childNode = childNodes[i];
-      const renderChildNode = renderChildNodes[i];
-      const childNextSibling = render?.__childNodes?.[i + 1] ?? nextSibling;
-      reconcile(parent, childNextSibling, renderChildNode, childNode);
-    }
-  } else {
-    const childNodes = next.__childNodes ?? [];
-    for (let i = 0; i < childNodes.length; i++) {
-      const childNode = childNodes[i];
-      const renderChildNode = render?.__childNodes?.[i];
-      const childNextSibling = render?.__childNodes?.[i + 1] ?? null;
-      reconcile(node, childNextSibling, renderChildNode, childNode);
+function flattenChildNodes(nodes?: Node[]): Node[] {
+  const childNodes = [];
+  for (const node of nodes ?? []) {
+    if (node instanceof DocumentFragment) {
+      const subNodes = flattenChildNodes(node.__childNodes);
+      childNodes.push(...subNodes);
+    } else {
+      childNodes.push(node);
     }
   }
 
-  setProps(node, next.__props, render?.__props);
+  return childNodes;
+}
 
-  if (!render) {
-    parent.insertBefore(node, nextSibling);
-  } else if (next.nodeName !== render.nodeName && render.nodeType !== 11) {
-    parent.replaceChild(node, render);
-  } else if (next.nodeName !== render.nodeName) {
-    removeTree(render);
+function reattach(parent: Node, start: Node | null, end: Node | null, node: Node | null) {
+  if (node) {
+    for (const child of node?.__childNodes ?? []) {
+      reattach(node, node.__childNodes?.[0] ?? null, null, child);
+    }
+
+    let renderedNodes = [...parent.childNodes];
+    let position = renderedNodes.findIndex((i) => i === start);
+    const endPosition = renderedNodes.findIndex((i) => i === end);
+    let currentDom: Node | null | undefined = parent.childNodes[position];
+
+    const childNodes = flattenChildNodes(node.__childNodes);
+    let nextNode = childNodes.shift();
+    while (nextNode || position < endPosition || currentDom) {
+      if (nextNode && currentDom && position !== endPosition) {
+        parent.replaceChild(nextNode, currentDom);
+      } else if (nextNode) {
+        parent.insertBefore(nextNode, end);
+      } else if (currentDom) {
+        parent.removeChild(currentDom);
+      }
+
+      nextNode = childNodes.shift();
+      position++;
+      currentDom = parent.childNodes[position];
+    }
   }
 }
 
 function useCurrentComponentState<T>(initialValue: T) {
-  const component = CURRENT_COMPONENT;
-  if (!component) {
+  const lastComponent = CURRENT_COMPONENT;
+  if (!lastComponent) {
     throw Error("useState: Unknown component to update.");
   }
-  let { tag, props, statePosition: stateIndex, state: stateValues } = component;
+  let { tag, props, statePosition: stateIndex, state: stateValues } = lastComponent;
 
   // setup initial value
   const currentIndex = stateIndex;
@@ -212,18 +261,21 @@ function useCurrentComponentState<T>(initialValue: T) {
     const nextValues = [...stateValues];
     nextValues[currentIndex] = nextValue;
 
-    const { node } = component;
+    const { node } = lastComponent;
     if (!node) {
       throw new Error("wat");
     }
 
-    const newNode = renderComponent(tag, props, nextValues);
     const parent = findParent(node);
     if (!parent) {
       throw new Error("No parent");
     }
-    const nextSibling = findNextSibling(node) ?? null;
-    reconcile(parent, nextSibling, node, newNode);
+    const startNode = findFirstChild(node) ?? null;
+    const endNode = findNextSibling(node) ?? null;
+    const component = renderComponent(tag, props, nextValues);
+    const reconciledNode = reconcile(node, component.node);
+    component.node = reconciledNode!;
+    reattach(parent, startNode, endNode, reconciledNode);
   };
 
   return [value, update] as [T, (value: T) => void];
@@ -291,7 +343,7 @@ declare global {
 
     type Props = Record<string, unknown>;
 
-    type PropsWithChildren = { children: Children };
+    type PropsWithChildren = { children?: Children };
 
     type ComponentProps = Props & PropsWithChildren;
 
