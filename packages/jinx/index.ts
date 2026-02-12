@@ -272,6 +272,8 @@ function useCurrentComponentState<T>(initialValue: T) {
   stateIndex++;
 
   const update = (nextValue: T) => {
+    const t0 = performance.now();
+
     const nextValues = [...stateValues];
     nextValues[currentIndex] = nextValue;
 
@@ -282,6 +284,9 @@ function useCurrentComponentState<T>(initialValue: T) {
 
     const component = renderComponent(tag, props, nextValues);
     component.node = reconcileDom(renderedNode, component.node);
+
+    const t1 = performance.now();
+    console.log(`${component.tag.name} rendered in ${t1 - t0} milliseconds.`);
   };
 
   return [value, update] as [T, (value: T) => void];
