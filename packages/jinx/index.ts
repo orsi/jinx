@@ -35,16 +35,15 @@ function renderComponent(tag: JSX.ComponentFunction, props: JSX.ComponentProps, 
     statePosition: 0,
     state: values ?? [],
     tag,
-  };
+  } as JSX.ComponentRef;
 
   const currentContext = CURRENT_COMPONENT;
   CURRENT_COMPONENT = component;
   const result = tag(props);
-  const node = renderChild(result);
-  component.node = node;
+  component.node = renderChild(result);
   CURRENT_COMPONENT = currentContext;
 
-  return component;
+  return component as JSX.ComponentRef;
 }
 
 function renderChild(child: JSX.Child) {
@@ -124,84 +123,15 @@ function attach(node: Node, childNodes: Node[] = []) {
     node.appendChild(child);
   }
 
+  node.__childNodes = childNodes;
   return node;
 }
 
-function findFirstChild(node?: Node): Node | null | undefined {
-  if (node instanceof DocumentFragment) {
-    const firstChild = node.__childNodes?.[0];
-    if (firstChild) {
-      return findFirstChild(firstChild);
-    }
-  } else if (node) {
-    return node;
-  }
-}
-
-function findNextSibling(node?: Node): Node | null | undefined {
-  if (node instanceof DocumentFragment) {
-    const lastChild = node.__childNodes?.[node.__childNodes.length - 1];
-    if (lastChild) {
-      return findNextSibling(lastChild);
-    }
-  } else if (node) {
-    return node.nextSibling;
-  }
-}
-
-function findParent(node: Node) {
-  if (node instanceof DocumentFragment) {
-    for (const child of node.__childNodes ?? []) {
-      return findParent(child);
-    }
-  } else {
-    return node.parentNode;
-  }
-}
-
-function reconcile(render?: Node | null, next?: Node | null) {
-  // nothing to do
-  if (!next) {
-    return null;
-  }
-
-  // new node
-  if (!render || next.nodeName !== render.nodeName) {
-    prepare(next);
-    attach(next, next.__childNodes);
-    return next;
-  }
-
-  if (next instanceof Text) {
-    return next;
-  } else {
-    const childNodes = next.__childNodes ?? [];
-    const renderChildNodes = render.__childNodes ?? [];
-    const length = Math.max(childNodes.length, renderChildNodes.length);
-    const reconciledNodes: Node[] = [];
-    for (let i = 0; i < length; i++) {
-      const childNode = childNodes[i];
-      const renderChildNode = renderChildNodes[i];
-      const node = reconcile(renderChildNode, childNode);
-      if (!node) {
-        continue;
-      }
-      reconciledNodes.push(node);
-    }
-
-    setProps(render, next.__props, render.__props);
-    render.__childNodes = reconciledNodes;
-    render.__children = next.__children;
-
-    return render;
-  }
-}
-
-function flattenChildNodes(nodes?: Node[]): Node[] {
+function flattenFragment(fragment: DocumentFragment): Node[] {
   const childNodes = [];
-  for (const node of nodes ?? []) {
+  for (const node of fragment.__childNodes ?? []) {
     if (node instanceof DocumentFragment) {
-      const subNodes = flattenChildNodes(node.__childNodes);
+      const subNodes = flattenFragment(node);
       childNodes.push(...subNodes);
     } else {
       childNodes.push(node);
@@ -211,32 +141,116 @@ function flattenChildNodes(nodes?: Node[]): Node[] {
   return childNodes;
 }
 
-function reattach(parent: Node, start: Node | null, end: Node | null, node: Node | null) {
-  if (node) {
-    for (const child of node?.__childNodes ?? []) {
-      reattach(node, node.__childNodes?.[0] ?? null, null, child);
+function getFragmentParent(node: Node): Node | null {
+  for (const childNode of node.__childNodes ?? []) {
+    if (childNode instanceof DocumentFragment) {
+      const parent = getFragmentParent(childNode);
+      if (parent) {
+        return parent;
+      }
+    } else if (childNode.parentNode) {
+      return childNode.parentNode;
+    }
+  }
+
+  return null;
+}
+
+function reconcileDom(last: Node, next: Node) {
+  if (last instanceof Text && next instanceof Text) {
+    last.textContent = next.textContent;
+    return last;
+  } else if (last instanceof DocumentFragment && next instanceof DocumentFragment) {
+    const parent = getFragmentParent(last);
+    if (parent == null) {
+      throw new Error("Cmon buddy");
     }
 
-    let renderedNodes = [...parent.childNodes];
-    let position = renderedNodes.findIndex((i) => i === start);
-    const endPosition = renderedNodes.findIndex((i) => i === end);
-    let currentDom: Node | null | undefined = parent.childNodes[position];
-
-    const childNodes = flattenChildNodes(node.__childNodes);
-    let nextNode = childNodes.shift();
-    while (nextNode || position < endPosition || currentDom) {
-      if (nextNode && currentDom && position !== endPosition) {
-        parent.replaceChild(nextNode, currentDom);
+    const lastNodes = flattenFragment(last);
+    const nextNodes = flattenFragment(next);
+    const end = lastNodes[lastNodes.length - 1]?.nextSibling ?? null;
+    const length = Math.max(lastNodes.length, nextNodes.length);
+    const reconciledNodes = [];
+    for (let i = 0; i < length; i++) {
+      const lastNode = lastNodes[i];
+      const nextNode = nextNodes[i];
+      if (lastNode && nextNode) {
+        const reconciled = reconcileDom(lastNode, nextNode);
+        reconciledNodes.push(reconciled);
+      } else if (lastNode) {
+        parent.removeChild(lastNode);
       } else if (nextNode) {
+        prepare(nextNode);
+        attach(nextNode, nextNode.__childNodes);
         parent.insertBefore(nextNode, end);
-      } else if (currentDom) {
-        parent.removeChild(currentDom);
+        reconciledNodes.push(nextNode);
+      }
+    }
+    last.__childNodes = reconciledNodes;
+    return last;
+  } else if (last instanceof Element && next instanceof Element && last.nodeName === next.nodeName) {
+    // reconcile children
+    const lastChildNodes = last.__childNodes ?? [];
+    const nextChildNodes = next.__childNodes ?? [];
+    const length = Math.max(lastChildNodes.length, nextChildNodes.length);
+    const reconciledChildNodes: Node[] = [];
+    for (let i = 0; i < length; i++) {
+      const lastChildNode = lastChildNodes[i];
+      const nextChildNode = nextChildNodes[i];
+      if (lastChildNode && nextChildNode) {
+        const reconciled = reconcileDom(lastChildNode, nextChildNode);
+        reconciledChildNodes.push(reconciled);
+      } else if (lastChildNode) {
+        next.removeChild(lastChildNode);
+      } else if (nextChildNode) {
+        prepare(nextChildNode);
+        attach(nextChildNode, nextChildNode.__childNodes);
+        next.appendChild(nextChildNode);
+        reconciledChildNodes.push(nextChildNode);
+      }
+    }
+
+    setProps(last, next.__props, last.__props);
+    last.__childNodes = reconciledChildNodes;
+    return last;
+  } else {
+    prepare(next);
+    attach(next, next.__childNodes);
+
+    if (last instanceof DocumentFragment) {
+      const parent = getFragmentParent(last);
+      if (parent == null) {
+        throw new Error("watch it bub");
       }
 
-      nextNode = childNodes.shift();
-      position++;
-      currentDom = parent.childNodes[position];
+      const fragmentChildren = flattenFragment(last);
+      const firstChild = fragmentChildren.shift();
+      if (firstChild != null) {
+        parent.replaceChild(next, firstChild);
+      } else {
+        const end = fragmentChildren[fragmentChildren.length - 1];
+        if (end) {
+          parent.insertBefore(next, end);
+        } else {
+          parent.appendChild(next);
+        }
+      }
+
+      let orphan = fragmentChildren.shift();
+      while (orphan) {
+        parent.removeChild(orphan);
+        orphan = fragmentChildren.shift();
+      }
+    } else {
+      const parent = last.parentNode;
+      if (parent == null) {
+        throw new Error("How dat happen");
+      }
+
+      parent.replaceChild(next, last);
     }
+
+    return next;
   }
 }
 
@@ -261,21 +275,13 @@ function useCurrentComponentState<T>(initialValue: T) {
     const nextValues = [...stateValues];
     nextValues[currentIndex] = nextValue;
 
-    const { node } = lastComponent;
-    if (!node) {
+    const { node: renderedNode } = lastComponent;
+    if (!renderedNode) {
       throw new Error("wat");
     }
 
-    const parent = findParent(node);
-    if (!parent) {
-      throw new Error("No parent");
-    }
-    const startNode = findFirstChild(node) ?? null;
-    const endNode = findNextSibling(node) ?? null;
     const component = renderComponent(tag, props, nextValues);
-    const reconciledNode = reconcile(node, component.node);
-    component.node = reconciledNode!;
-    reattach(parent, startNode, endNode, reconciledNode);
+    component.node = reconcileDom(renderedNode, component.node);
   };
 
   return [value, update] as [T, (value: T) => void];
@@ -350,7 +356,7 @@ declare global {
     type ComponentFunction<T = any> = (props: ComponentProps & T) => Children;
 
     type ComponentRef = {
-      node?: Node;
+      node: Node;
       props: ComponentProps;
       statePosition: number;
       state: unknown[];
