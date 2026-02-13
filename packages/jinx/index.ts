@@ -1,13 +1,53 @@
-let CURRENT_COMPONENT: JSX.ComponentRef | undefined;
+let COMPONENT_CONTEXT: JSX.ComponentRef | undefined;
+
+function createComponent(tag: JSX.ComponentFunction, props: JSX.ComponentProps, state: unknown[] = []) {
+  const component: JSX.ComponentRef = {
+    props,
+    stateIndex: 0,
+    state,
+    tag,
+  } as JSX.ComponentRef;
+
+  // save previous context
+  const context = COMPONENT_CONTEXT;
+  COMPONENT_CONTEXT = component;
+
+  component.node = renderChild(tag(props));
+
+  // restore previous context
+  COMPONENT_CONTEXT = context;
+
+  return component as JSX.ComponentRef;
+}
+
+function getComponentContext() {
+  if (COMPONENT_CONTEXT == null) {
+    throw new Error("No component is currently rendering");
+  }
+
+  return COMPONENT_CONTEXT;
+}
+
+function isComponentRendering() {
+  return COMPONENT_CONTEXT != null;
+}
+
+/**
+ * <></>
+ */
+export function Fragment(props: JSX.PropsWithChildren) {
+  return props.children;
+}
 
 export function jsx(tag: string | JSX.ComponentFunction, props: JSX.Props, ...children: JSX.Child[]): Node {
   let node: Node;
   if (typeof tag === "function") {
-    const component = renderComponent(tag, { ...props, children }, []);
-    node = component.node!;
+    props = props ?? {};
+    props.children = children;
+    const component = createComponent(tag, props);
+    node = component.node;
   } else {
     node = document.createElement(tag);
-    node.__children = children;
     node.__childNodes = [];
     node.__props = props;
     for (const child of children) {
@@ -16,34 +56,15 @@ export function jsx(tag: string | JSX.ComponentFunction, props: JSX.Props, ...ch
     }
   }
 
-  // prepare for insertion in dom if not being rendered inside a component
-  if (!CURRENT_COMPONENT) {
+  // TODO: is this needed? is there any benefit to defer preparing every jsx element
+  // until the last/root jsx element?
+
+  // prepare for insertion if not being rendered inside a component
+  if (!isComponentRendering()) {
     prepare(node);
-    attach(node, node.__childNodes);
   }
 
   return node;
-}
-
-export function Fragment(props: JSX.PropsWithChildren) {
-  return props.children;
-}
-
-function renderComponent(tag: JSX.ComponentFunction, props: JSX.ComponentProps, values: unknown[]) {
-  const component: JSX.ComponentRef = {
-    props,
-    statePosition: 0,
-    state: values ?? [],
-    tag,
-  } as JSX.ComponentRef;
-
-  const currentContext = CURRENT_COMPONENT;
-  CURRENT_COMPONENT = component;
-  const result = tag(props);
-  component.node = renderChild(result);
-  CURRENT_COMPONENT = currentContext;
-
-  return component as JSX.ComponentRef;
 }
 
 function renderChild(child: JSX.Child) {
@@ -59,7 +80,6 @@ function renderChild(child: JSX.Child) {
     return node;
   } else {
     const node = document.createDocumentFragment();
-    node.__children = child;
     node.__childNodes = [];
     for (const subChild of child) {
       const subNode = renderChild(subChild);
@@ -69,6 +89,7 @@ function renderChild(child: JSX.Child) {
   }
 }
 
+// TODO: can we re-use this function for updatating text nodes as well?
 function setProps(target: Node, props?: JSX.Props, previousProps?: JSX.Props) {
   if (!(target instanceof HTMLElement)) {
     return;
@@ -111,37 +132,14 @@ function setProps(target: Node, props?: JSX.Props, previousProps?: JSX.Props) {
 function prepare(node: Node) {
   for (const child of node.__childNodes ?? []) {
     prepare(child);
+    node.appendChild(child);
   }
 
   setProps(node, node.__props);
   return node;
 }
 
-function attach(node: Node, childNodes: Node[] = []) {
-  for (const child of childNodes) {
-    attach(child, child.__childNodes);
-    node.appendChild(child);
-  }
-
-  node.__childNodes = childNodes;
-  return node;
-}
-
-function flattenFragment(fragment: DocumentFragment): Node[] {
-  const childNodes = [];
-  for (const node of fragment.__childNodes ?? []) {
-    if (node instanceof DocumentFragment) {
-      const subNodes = flattenFragment(node);
-      childNodes.push(...subNodes);
-    } else {
-      childNodes.push(node);
-    }
-  }
-
-  return childNodes;
-}
-
-function getFragmentParent(node: Node): Node | null {
+function getFragmentParent(node: Node): Node {
   for (const childNode of node.__childNodes ?? []) {
     if (childNode instanceof DocumentFragment) {
       const parent = getFragmentParent(childNode);
@@ -153,69 +151,59 @@ function getFragmentParent(node: Node): Node | null {
     }
   }
 
-  return null;
+  throw new Error("Fragment has no parent");
 }
 
-function reconcileDom(last: Node, next: Node) {
+function getFragmentChildNodes(fragment: DocumentFragment): Node[] {
+  const childNodes = [];
+  for (const node of fragment.__childNodes ?? []) {
+    if (node instanceof DocumentFragment) {
+      const subNodes = getFragmentChildNodes(node);
+      childNodes.push(...subNodes);
+    } else {
+      childNodes.push(node);
+    }
+  }
+
+  return childNodes;
+}
+
+function reconcileChildren(parent: Node, lastChildNodes: Node[] = [], nextChildNodes: Node[] = []) {
+  const length = Math.max(lastChildNodes.length, nextChildNodes.length);
+  const reconciledChildNodes: Node[] = [];
+  for (let i = 0; i < length; i++) {
+    const lastChildNode = lastChildNodes[i];
+    const nextChildNode = nextChildNodes[i];
+    if (lastChildNode && nextChildNode) {
+      const reconciled = reconcile(lastChildNode, nextChildNode);
+      reconciledChildNodes.push(reconciled);
+    } else if (lastChildNode) {
+      parent.removeChild(lastChildNode);
+    } else if (nextChildNode) {
+      prepare(nextChildNode);
+      parent.appendChild(nextChildNode);
+      reconciledChildNodes.push(nextChildNode);
+    }
+  }
+
+  return reconciledChildNodes;
+}
+
+function reconcile(last: Node, next: Node) {
   if (last instanceof Text && next instanceof Text) {
     last.textContent = next.textContent;
     return last;
   } else if (last instanceof DocumentFragment && next instanceof DocumentFragment) {
     const parent = getFragmentParent(last);
-    if (parent == null) {
-      throw new Error("Cmon buddy");
-    }
-
-    const lastNodes = flattenFragment(last);
-    const nextNodes = flattenFragment(next);
-    const end = lastNodes[lastNodes.length - 1]?.nextSibling ?? null;
-    const length = Math.max(lastNodes.length, nextNodes.length);
-    const reconciledNodes = [];
-    for (let i = 0; i < length; i++) {
-      const lastNode = lastNodes[i];
-      const nextNode = nextNodes[i];
-      if (lastNode && nextNode) {
-        const reconciled = reconcileDom(lastNode, nextNode);
-        reconciledNodes.push(reconciled);
-      } else if (lastNode) {
-        parent.removeChild(lastNode);
-      } else if (nextNode) {
-        prepare(nextNode);
-        attach(nextNode, nextNode.__childNodes);
-        parent.insertBefore(nextNode, end);
-        reconciledNodes.push(nextNode);
-      }
-    }
-    last.__childNodes = reconciledNodes;
+    last.__childNodes = reconcileChildren(parent, last.__childNodes, next.__childNodes);
     return last;
   } else if (last instanceof Element && next instanceof Element && last.nodeName === next.nodeName) {
-    // reconcile children
-    const lastChildNodes = last.__childNodes ?? [];
-    const nextChildNodes = next.__childNodes ?? [];
-    const length = Math.max(lastChildNodes.length, nextChildNodes.length);
-    const reconciledChildNodes: Node[] = [];
-    for (let i = 0; i < length; i++) {
-      const lastChildNode = lastChildNodes[i];
-      const nextChildNode = nextChildNodes[i];
-      if (lastChildNode && nextChildNode) {
-        const reconciled = reconcileDom(lastChildNode, nextChildNode);
-        reconciledChildNodes.push(reconciled);
-      } else if (lastChildNode) {
-        next.removeChild(lastChildNode);
-      } else if (nextChildNode) {
-        prepare(nextChildNode);
-        attach(nextChildNode, nextChildNode.__childNodes);
-        next.appendChild(nextChildNode);
-        reconciledChildNodes.push(nextChildNode);
-      }
-    }
-
+    last.__childNodes = reconcileChildren(next, last.__childNodes, next.__childNodes);
     setProps(last, next.__props, last.__props);
-    last.__childNodes = reconciledChildNodes;
     return last;
   } else {
+    // TODO: this can be cleaned up and improved
     prepare(next);
-    attach(next, next.__childNodes);
 
     if (last instanceof DocumentFragment) {
       const parent = getFragmentParent(last);
@@ -223,7 +211,8 @@ function reconcileDom(last: Node, next: Node) {
         throw new Error("watch it bub");
       }
 
-      const fragmentChildren = flattenFragment(last);
+      const fragmentChildren = getFragmentChildNodes(last);
+
       const firstChild = fragmentChildren.shift();
       if (firstChild != null) {
         parent.replaceChild(next, firstChild);
@@ -246,7 +235,6 @@ function reconcileDom(last: Node, next: Node) {
       if (parent == null) {
         throw new Error("How dat happen");
       }
-
       parent.replaceChild(next, last);
     }
 
@@ -255,35 +243,26 @@ function reconcileDom(last: Node, next: Node) {
 }
 
 function useCurrentComponentState<T>(initialValue: T) {
-  const lastComponent = CURRENT_COMPONENT;
-  if (!lastComponent) {
-    throw Error("useState: Unknown component to update.");
-  }
-  let { tag, props, statePosition: stateIndex, state: stateValues } = lastComponent;
+  const lastComponent = getComponentContext();
 
-  // setup initial value
-  const currentIndex = stateIndex;
-  if (stateValues[currentIndex] == null) {
-    stateValues[currentIndex] = initialValue;
+  // initial value
+  const index = lastComponent.stateIndex;
+  if (lastComponent.state[index] == null) {
+    lastComponent.state[index] = initialValue;
   }
-  const value = stateValues[currentIndex];
+  const value = lastComponent.state[index];
 
-  // update state index
-  stateIndex++;
+  // advance state index
+  lastComponent.stateIndex++;
 
   const update = (nextValue: T) => {
     const t0 = performance.now();
 
-    const nextValues = [...stateValues];
-    nextValues[currentIndex] = nextValue;
+    const nextValues = [...lastComponent.state];
+    nextValues[index] = nextValue;
 
-    const { node: renderedNode } = lastComponent;
-    if (!renderedNode) {
-      throw new Error("wat");
-    }
-
-    const component = renderComponent(tag, props, nextValues);
-    component.node = reconcileDom(renderedNode, component.node);
+    const component = createComponent(lastComponent.tag, lastComponent.props, nextValues);
+    component.node = reconcile(lastComponent.node, component.node);
 
     const t1 = performance.now();
     console.log(`${component.tag.name} rendered in ${t1 - t0} milliseconds.`);
@@ -340,7 +319,6 @@ declare global {
   interface Node {
     __parent?: Node;
     __before?: Node;
-    __children?: JSX.Child[];
     __childNodes?: Node[];
     __props?: JSX.Props;
   }
@@ -363,7 +341,7 @@ declare global {
     type ComponentRef = {
       node: Node;
       props: ComponentProps;
-      statePosition: number;
+      stateIndex: number;
       state: unknown[];
       tag: ComponentFunction;
     };

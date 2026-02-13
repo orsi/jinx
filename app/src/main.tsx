@@ -83,6 +83,38 @@ function test(
   };
 }
 
+let FragmentTestState: any;
+test(
+  "A lot of Fragments and moving",
+  () => {
+    const FragmentTest = ({ children }: JSX.PropsWithChildren) => {
+      FragmentTestState = useState(0);
+      const [count, setCount] = FragmentTestState;
+      return (
+        <>
+          <>one, </>
+          {count % 3 === 0 ? children : "muahaha! "}
+        </>
+      );
+    };
+
+    return (
+      <FragmentTest>
+        <>two, </>
+        <>three</>
+      </FragmentTest>
+    );
+  },
+  ($container) => {
+    FragmentTestState[1](2);
+    const test1 = $container.childNodes[1]?.textContent?.includes("muahaha! ");
+    FragmentTestState[1](3);
+    const test2 = !$container.childNodes[2]?.textContent?.includes("two, ");
+    const test3 = !$container.innerText?.includes("muahaha! ");
+    return test1 && test2 && test3;
+  }
+);
+
 let state: any;
 test(
   "State update to 2 and isolated fragment stays in dom",
