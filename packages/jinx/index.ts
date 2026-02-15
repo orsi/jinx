@@ -89,44 +89,49 @@ function renderChild(child: JSX.Child) {
   }
 }
 
-// TODO: can we re-use this function for updatating text nodes as well?
-function setProps(target: Node, props?: JSX.Props, previousProps?: JSX.Props) {
-  if (!(target instanceof HTMLElement)) {
-    return;
-  }
-
-  // remove last
-  for (const [prop, value] of Object.entries(previousProps ?? {})) {
-    const isEvent = prop.startsWith("on") && prop.substring(2).toLowerCase() in target;
-    if (isEvent) {
-      const eventName = prop.substring(2).toLowerCase() as keyof ElementEventMap;
-      target.removeEventListener(eventName, value as EventListenerOrEventListenerObject);
-    } else if (prop === "style" && value != null && typeof value === "object") {
-      for (const [styleProp] of Object.entries(value)) {
-        target.style.removeProperty(styleProp);
+function commit(target: Node, next: Node, previous?: Node) {
+  if (target instanceof Text) {
+    target.textContent = next.textContent;
+  } else if (target instanceof HTMLElement) {
+    const previousProps = previous?.__props ?? {};
+    // remove previous
+    for (const [prop, value] of Object.entries(previousProps)) {
+      const isEvent = prop.startsWith("on") && prop.substring(2).toLowerCase() in target;
+      if (isEvent) {
+        const eventName = prop.substring(2).toLowerCase() as keyof ElementEventMap;
+        target.removeEventListener(eventName, value as EventListenerOrEventListenerObject);
+      } else if (prop === "style" && value != null && typeof value === "object") {
+        for (const [styleProp] of Object.entries(value)) {
+          target.style.removeProperty(styleProp);
+        }
+      } else {
+        target.removeAttribute(prop);
       }
-    } else {
-      target.removeAttribute(prop);
     }
-  }
 
-  // set new
-  for (const [prop, value] of Object.entries(props ?? {})) {
-    const isEvent = prop.startsWith("on") && prop.substring(2).toLowerCase() in target;
-    if (isEvent) {
-      const eventName = prop.substring(2).toLowerCase() as keyof ElementEventMap;
-      target.addEventListener(eventName, value as EventListenerOrEventListenerObject);
-    } else if (prop === "style" && value != null && typeof value === "object") {
-      for (const [styleProp, styleValue] of Object.entries(value)) {
-        target.style[styleProp as any] = styleValue;
-        //                    ^ dirty, but I ain't figuring out how to type this
+    // apply next
+    const props = next?.__props ?? {};
+    for (const [prop, value] of Object.entries(props ?? {})) {
+      const isEvent = prop.startsWith("on") && prop.substring(2).toLowerCase() in target;
+      if (isEvent) {
+        const eventName = prop.substring(2).toLowerCase() as keyof ElementEventMap;
+        target.addEventListener(eventName, value as EventListenerOrEventListenerObject);
+      } else if (prop === "style" && value != null && typeof value === "object") {
+        for (const [styleProp, styleValue] of Object.entries(value)) {
+          target.style[styleProp as any] = styleValue;
+          //                    ^ dirty, but I ain't figuring out how to type this
+        }
+      } else {
+        target.setAttribute(prop, value as string);
       }
-    } else {
-      target.setAttribute(prop, value as string);
     }
+
+    target.__props = props;
+  } else {
+    // noop
   }
 
-  target.__props = props;
+  return target;
 }
 
 function prepare(node: Node) {
@@ -135,8 +140,7 @@ function prepare(node: Node) {
     node.appendChild(child);
   }
 
-  setProps(node, node.__props);
-  return node;
+  return commit(node, node);
 }
 
 function getParent(node: Node): Node {
@@ -170,8 +174,7 @@ function getFragmentChildNodes(fragment: DocumentFragment): Node[] {
 
 function reconcile(last: Node, next: Node) {
   if (last instanceof Text && next instanceof Text) {
-    last.textContent = next.textContent;
-    return last;
+    return commit(last, next);
   } else if (last.nodeName === next.nodeName) {
     const parent = last instanceof DocumentFragment ? getParent(last) : last;
     const lastChildNodes = last.__childNodes ?? [];
@@ -194,11 +197,9 @@ function reconcile(last: Node, next: Node) {
     }
     last.__childNodes = reconciledChildNodes;
 
-    setProps(last, next.__props, last.__props);
-    return last;
+    return commit(last, next, last);
   } else {
-    prepare(next);
-
+    const node = prepare(next);
     const parent = getParent(last);
     if (last instanceof DocumentFragment) {
       const fragmentChildren = getFragmentChildNodes(last);
@@ -206,17 +207,16 @@ function reconcile(last: Node, next: Node) {
       if (firstChild == null) {
         throw new Error("how?");
       }
-      parent.replaceChild(next, firstChild);
+      parent.replaceChild(node, firstChild);
 
       let orphan: Node | undefined;
       while ((orphan = fragmentChildren.shift())) {
         parent.removeChild(orphan);
       }
     } else {
-      parent.replaceChild(next, last);
+      parent.replaceChild(node, last);
     }
-
-    return next;
+    return node;
   }
 }
 
@@ -291,10 +291,9 @@ type IntrinsicHTMLElement<T extends keyof HTMLElementTagNameMap> = Prettify<
   }
 >;
 
-type RecursiveArray<T> = Array<T | RecursiveArray<T>>;
-
 declare global {
   interface Node {
+    /** retains references to childNodes attached and moved from a DocumentFragment */
     __childNodes?: Node[];
     __props?: JSX.Props;
   }
@@ -302,8 +301,6 @@ declare global {
   namespace JSX {
     type Child = null | string | number | boolean | Node | Child[];
 
-    // only used for typing JSX properly
-    // most internal use cases are just JSX.Child[]
     type Children = Child | Child[];
 
     type Props = Record<string, unknown>;
