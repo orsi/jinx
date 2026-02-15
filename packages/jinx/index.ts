@@ -139,19 +139,19 @@ function prepare(node: Node) {
   return node;
 }
 
-function getFragmentParent(node: Node): Node {
-  for (const childNode of node.__childNodes ?? []) {
-    if (childNode instanceof DocumentFragment) {
-      const parent = getFragmentParent(childNode);
+function getParent(node: Node): Node {
+  if (node.parentNode != null) {
+    return node.parentNode;
+  } else {
+    for (const childNode of node.__childNodes ?? []) {
+      const parent = getParent(childNode);
       if (parent) {
         return parent;
       }
-    } else if (childNode.parentNode) {
-      return childNode.parentNode;
     }
   }
 
-  throw new Error("Fragment has no parent");
+  throw new Error("Node has no parent");
 }
 
 function getFragmentChildNodes(fragment: DocumentFragment): Node[] {
@@ -168,73 +168,51 @@ function getFragmentChildNodes(fragment: DocumentFragment): Node[] {
   return childNodes;
 }
 
-function reconcileChildren(parent: Node, lastChildNodes: Node[] = [], nextChildNodes: Node[] = []) {
-  const length = Math.max(lastChildNodes.length, nextChildNodes.length);
-  const reconciledChildNodes: Node[] = [];
-  for (let i = 0; i < length; i++) {
-    const lastChildNode = lastChildNodes[i];
-    const nextChildNode = nextChildNodes[i];
-    if (lastChildNode && nextChildNode) {
-      const reconciled = reconcile(lastChildNode, nextChildNode);
-      reconciledChildNodes.push(reconciled);
-    } else if (lastChildNode) {
-      parent.removeChild(lastChildNode);
-    } else if (nextChildNode) {
-      prepare(nextChildNode);
-      parent.appendChild(nextChildNode);
-      reconciledChildNodes.push(nextChildNode);
-    }
-  }
-
-  return reconciledChildNodes;
-}
-
 function reconcile(last: Node, next: Node) {
   if (last instanceof Text && next instanceof Text) {
     last.textContent = next.textContent;
     return last;
-  } else if (last instanceof DocumentFragment && next instanceof DocumentFragment) {
-    const parent = getFragmentParent(last);
-    last.__childNodes = reconcileChildren(parent, last.__childNodes, next.__childNodes);
-    return last;
-  } else if (last instanceof Element && next instanceof Element && last.nodeName === next.nodeName) {
-    last.__childNodes = reconcileChildren(next, last.__childNodes, next.__childNodes);
+  } else if (last.nodeName === next.nodeName) {
+    const parent = last instanceof DocumentFragment ? getParent(last) : last;
+    const lastChildNodes = last.__childNodes ?? [];
+    const nextChildNodes = next.__childNodes ?? [];
+    const length = Math.max(lastChildNodes.length, nextChildNodes.length);
+    const reconciledChildNodes: Node[] = [];
+    for (let i = 0; i < length; i++) {
+      const lastChildNode = lastChildNodes[i];
+      const nextChildNode = nextChildNodes[i];
+      if (lastChildNode && nextChildNode) {
+        const reconciled = reconcile(lastChildNode, nextChildNode);
+        reconciledChildNodes.push(reconciled);
+      } else if (lastChildNode) {
+        parent.removeChild(lastChildNode);
+      } else if (nextChildNode) {
+        prepare(nextChildNode);
+        parent.appendChild(nextChildNode);
+        reconciledChildNodes.push(nextChildNode);
+      }
+    }
+    last.__childNodes = reconciledChildNodes;
+
     setProps(last, next.__props, last.__props);
     return last;
   } else {
-    // TODO: this can be cleaned up and improved
     prepare(next);
 
+    const parent = getParent(last);
     if (last instanceof DocumentFragment) {
-      const parent = getFragmentParent(last);
-      if (parent == null) {
-        throw new Error("watch it bub");
-      }
-
       const fragmentChildren = getFragmentChildNodes(last);
-
       const firstChild = fragmentChildren.shift();
-      if (firstChild != null) {
-        parent.replaceChild(next, firstChild);
-      } else {
-        const end = fragmentChildren[fragmentChildren.length - 1];
-        if (end) {
-          parent.insertBefore(next, end);
-        } else {
-          parent.appendChild(next);
-        }
+      if (firstChild == null) {
+        throw new Error("how?");
       }
+      parent.replaceChild(next, firstChild);
 
-      let orphan = fragmentChildren.shift();
-      while (orphan) {
+      let orphan: Node | undefined;
+      while ((orphan = fragmentChildren.shift())) {
         parent.removeChild(orphan);
-        orphan = fragmentChildren.shift();
       }
     } else {
-      const parent = last.parentNode;
-      if (parent == null) {
-        throw new Error("How dat happen");
-      }
       parent.replaceChild(next, last);
     }
 
@@ -317,8 +295,6 @@ type RecursiveArray<T> = Array<T | RecursiveArray<T>>;
 
 declare global {
   interface Node {
-    __parent?: Node;
-    __before?: Node;
     __childNodes?: Node[];
     __props?: JSX.Props;
   }
