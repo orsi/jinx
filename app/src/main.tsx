@@ -51,7 +51,7 @@ function test(
   $testHeader.textContent = name;
 
   TESTS.push(() => {
-    document.querySelector<HTMLDivElement>("body")!.append($testContainer);
+    document.body.append($testContainer);
     $testContainer.appendChild($testHeader);
 
     const TestResult = testFn();
@@ -82,6 +82,26 @@ function test(
     },
   };
 }
+
+test(
+  "JSX CSS style object test",
+  () => (
+    <div
+      id="div"
+      style={{
+        backgroundColor: "red",
+        fontSize: "72px",
+        fontWeight: "900",
+      }}
+    >
+      Yo
+    </div>
+  ),
+  ($container) => {
+    const $div = $container.querySelector("#div") as HTMLDivElement;
+    return $div?.style.backgroundColor === "red" && $div?.style.fontSize === "72px" && $div?.style.fontWeight === "900";
+  }
+);
 
 let FragmentTestState: any;
 test(

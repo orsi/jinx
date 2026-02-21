@@ -12,7 +12,7 @@ function createComponent(tag: JSX.ComponentFunction, props: JSX.ComponentProps, 
   const context = COMPONENT_CONTEXT;
   COMPONENT_CONTEXT = component;
 
-  component.node = renderChild(tag(props));
+  component.node = createChild(tag(props));
 
   // restore previous context
   COMPONENT_CONTEXT = context;
@@ -51,96 +51,91 @@ export function jsx(tag: string | JSX.ComponentFunction, props: JSX.Props, ...ch
     node.__childNodes = [];
     node.__props = props;
     for (const child of children) {
-      const childNode = renderChild(child);
+      const childNode = createChild(child);
       node.__childNodes.push(childNode);
     }
   }
 
-  // TODO: is this needed? is there any benefit to defer preparing every jsx element
-  // until the last/root jsx element?
-
-  // prepare for insertion if not being rendered inside a component
+  /**
+   * Only attach children when we are outside of a component rendering context.
+   * This ensures future renders caused by state updates don't remove children
+   * already in the DOM, and we can reuse inserted nodes if possible.
+   */
   if (!isComponentRendering()) {
-    prepare(node);
+    attach(node, node.__childNodes);
+  }
+
+  return commit(node, node.__props);
+}
+
+function createChild(child: JSX.Child) {
+  let node: Node;
+  if (child instanceof Node) {
+    node = child;
+  } else if (child == null || (Array.isArray(child) && child.length === 0)) {
+    node = document.createComment("");
+  } else if (typeof child === "boolean") {
+    node = document.createComment(`${child}`);
+  } else if (typeof child === "string" || typeof child === "number") {
+    const text = child.toString();
+    node = document.createTextNode(text);
+  } else {
+    node = document.createDocumentFragment();
+    node.__childNodes = [];
+    for (const subChild of child) {
+      const subNode = createChild(subChild);
+      node.__childNodes.push(subNode);
+    }
   }
 
   return node;
 }
 
-function renderChild(child: JSX.Child) {
-  if (child instanceof Node) {
-    return child;
-  } else if (child == null || (Array.isArray(child) && child.length === 0)) {
-    return document.createComment("");
-  } else if (typeof child === "boolean") {
-    return document.createComment(`${child}`);
-  } else if (typeof child === "string" || typeof child === "number") {
-    const text = child.toString();
-    const node = document.createTextNode(text);
-    return node;
-  } else {
-    const node = document.createDocumentFragment();
-    node.__childNodes = [];
-    for (const subChild of child) {
-      const subNode = renderChild(subChild);
-      node.__childNodes.push(subNode);
-    }
-    return node;
-  }
-}
-
-function commit(target: Node, next: Node, previous?: Node) {
-  if (target instanceof Text) {
-    target.textContent = next.textContent;
-  } else if (target instanceof HTMLElement) {
-    const previousProps = previous?.__props ?? {};
-    // remove previous
-    for (const [prop, value] of Object.entries(previousProps)) {
-      const isEvent = prop.startsWith("on") && prop.substring(2).toLowerCase() in target;
-      if (isEvent) {
-        const eventName = prop.substring(2).toLowerCase() as keyof ElementEventMap;
-        target.removeEventListener(eventName, value as EventListenerOrEventListenerObject);
-      } else if (prop === "style" && value != null && typeof value === "object") {
-        for (const [styleProp] of Object.entries(value)) {
-          target.style.removeProperty(styleProp);
-        }
-      } else {
-        target.removeAttribute(prop);
-      }
-    }
-
-    // apply next
-    const props = next?.__props ?? {};
-    for (const [prop, value] of Object.entries(props ?? {})) {
-      const isEvent = prop.startsWith("on") && prop.substring(2).toLowerCase() in target;
-      if (isEvent) {
-        const eventName = prop.substring(2).toLowerCase() as keyof ElementEventMap;
-        target.addEventListener(eventName, value as EventListenerOrEventListenerObject);
-      } else if (prop === "style" && value != null && typeof value === "object") {
-        for (const [styleProp, styleValue] of Object.entries(value)) {
-          target.style[styleProp as any] = styleValue;
-          //                    ^ dirty, but I ain't figuring out how to type this
-        }
-      } else {
-        target.setAttribute(prop, value as string);
-      }
-    }
-
-    target.__props = props;
-  } else {
-    // noop
+function commit(element: Node, next?: JSX.Props, previous?: JSX.Props) {
+  if (!(element instanceof HTMLElement)) {
+    return element;
   }
 
-  return target;
+  // remove previous
+  for (const [prop, value] of Object.entries(previous ?? {})) {
+    const isEvent = prop.startsWith("on") && prop.substring(2).toLowerCase() in element;
+    if (isEvent) {
+      const eventName = prop.substring(2).toLowerCase() as keyof ElementEventMap;
+      element.removeEventListener(eventName, value as EventListenerOrEventListenerObject);
+    } else if (prop === "style" && value != null && typeof value === "object") {
+      for (const [styleProp] of Object.entries(value)) {
+        element.style.removeProperty(styleProp);
+      }
+    } else {
+      element.removeAttribute(prop);
+    }
+  }
+
+  // apply next
+  for (const [prop, value] of Object.entries(next ?? {})) {
+    const isEvent = prop.startsWith("on") && prop.substring(2).toLowerCase() in element;
+    if (isEvent) {
+      const eventName = prop.substring(2).toLowerCase() as keyof ElementEventMap;
+      element.addEventListener(eventName, value as EventListenerOrEventListenerObject);
+    } else if (prop === "style" && value != null && typeof value === "object") {
+      for (const [styleProp, styleValue] of Object.entries(value)) {
+        // n.b. element.style.setProperty() does not support camelCase style objects like
+        // backgroundColor, fontSize, etc., but using bracket notation does!
+        element.style[styleProp as StyleProperty] = styleValue;
+      }
+    } else {
+      element.setAttribute(prop, value as string);
+    }
+  }
+
+  return element;
 }
 
-function prepare(node: Node) {
-  for (const child of node.__childNodes ?? []) {
-    prepare(child);
+function attach(node: Node, childNodes: Node[] = []) {
+  for (const child of childNodes) {
+    attach(child, child.__childNodes);
     node.appendChild(child);
   }
-
-  return commit(node, node);
 }
 
 function getParent(node: Node): Node {
@@ -158,23 +153,44 @@ function getParent(node: Node): Node {
   throw new Error("Node has no parent");
 }
 
-function getFragmentChildNodes(fragment: DocumentFragment): Node[] {
-  const childNodes = [];
-  for (const node of fragment.__childNodes ?? []) {
-    if (node instanceof DocumentFragment) {
-      const subNodes = getFragmentChildNodes(node);
+function getChildNodes(node: Node): ChildNode[] {
+  const childNodes: ChildNode[] = [];
+  for (const childNode of node.__childNodes ?? []) {
+    if (childNode instanceof DocumentFragment) {
+      const subNodes = getChildNodes(childNode);
       childNodes.push(...subNodes);
     } else {
-      childNodes.push(node);
+      childNodes.push(childNode as ChildNode);
     }
   }
 
   return childNodes;
 }
 
-function reconcile(last: Node, next: Node) {
+function replace(next: Node, last: Node) {
+  const parent = getParent(last);
+  if (last instanceof DocumentFragment) {
+    const childNodes = getChildNodes(last);
+    const firstChild = childNodes.shift();
+    if (firstChild == null) {
+      throw new Error("DocumentFragment has no childNodes.");
+    }
+    parent.replaceChild(next, firstChild);
+
+    let orphan = childNodes.shift();
+    while (orphan) {
+      parent.removeChild(orphan);
+      orphan = childNodes.shift();
+    }
+  } else {
+    parent.replaceChild(next, last);
+  }
+}
+
+function reconcile(next: Node, last: Node) {
   if (last instanceof Text && next instanceof Text) {
-    return commit(last, next);
+    last.textContent = next.textContent;
+    return last;
   } else if (last.nodeName === next.nodeName) {
     const parent = last instanceof DocumentFragment ? getParent(last) : last;
     const lastChildNodes = last.__childNodes ?? [];
@@ -185,38 +201,26 @@ function reconcile(last: Node, next: Node) {
       const lastChildNode = lastChildNodes[i];
       const nextChildNode = nextChildNodes[i];
       if (lastChildNode && nextChildNode) {
-        const reconciled = reconcile(lastChildNode, nextChildNode);
+        const reconciled = reconcile(nextChildNode, lastChildNode);
         reconciledChildNodes.push(reconciled);
       } else if (lastChildNode) {
         parent.removeChild(lastChildNode);
       } else if (nextChildNode) {
-        prepare(nextChildNode);
+        attach(nextChildNode, nextChildNode.__childNodes);
         parent.appendChild(nextChildNode);
         reconciledChildNodes.push(nextChildNode);
       }
     }
     last.__childNodes = reconciledChildNodes;
 
-    return commit(last, next, last);
+    // recommit next props onto reused last node
+    return commit(last, next.__props, last.__props);
   } else {
-    const node = prepare(next);
-    const parent = getParent(last);
-    if (last instanceof DocumentFragment) {
-      const fragmentChildren = getFragmentChildNodes(last);
-      const firstChild = fragmentChildren.shift();
-      if (firstChild == null) {
-        throw new Error("how?");
-      }
-      parent.replaceChild(node, firstChild);
-
-      let orphan: Node | undefined;
-      while ((orphan = fragmentChildren.shift())) {
-        parent.removeChild(orphan);
-      }
-    } else {
-      parent.replaceChild(node, last);
-    }
-    return node;
+    // next has already been committed
+    // attach childNodes and replace last node in DOM
+    attach(next, next.__childNodes);
+    replace(next, last);
+    return next;
   }
 }
 
@@ -240,7 +244,7 @@ function useCurrentComponentState<T>(initialValue: T) {
     nextValues[index] = nextValue;
 
     const component = createComponent(lastComponent.tag, lastComponent.props, nextValues);
-    component.node = reconcile(lastComponent.node, component.node);
+    component.node = reconcile(component.node, lastComponent.node);
 
     const t1 = performance.now();
     console.log(`${component.tag.name} rendered in ${t1 - t0} milliseconds.`);
@@ -289,6 +293,19 @@ type IntrinsicHTMLElement<T extends keyof HTMLElementTagNameMap> = Prettify<
       ? `on${Capitalize<E>}`
       : keyof GlobalEventHandlers]?: GlobalEventHandlers[K];
   }
+>;
+
+/**
+ * When accessing the `style` property of an HTMLElement dynamically, typing
+ * a string to `keyof CSSStyleDeclaration` doesn't work for some reason.
+ * cf. https://github.com/microsoft/TypeScript/issues/17827#issuecomment-2008561761
+ */
+type StyleProperty = Exclude<
+  keyof Omit<
+    CSSStyleDeclaration,
+    "length" | "parentRule" | "getPropertyPriority" | "getPropertyValue" | "item" | "removeProperty" | "setProperty"
+  >,
+  number
 >;
 
 declare global {
