@@ -1,44 +1,7 @@
-let COMPONENT_CONTEXT: JSX.ComponentRef | undefined;
-
-function createComponent(tag: JSX.ComponentFunction, props: JSX.ComponentProps, state: unknown[] = []) {
-  const component: JSX.ComponentRef = {
-    props,
-    stateIndex: 0,
-    state,
-    tag,
-  } as JSX.ComponentRef;
-
-  // save previous context
-  const context = COMPONENT_CONTEXT;
-  COMPONENT_CONTEXT = component;
-
-  component.node = createChild(tag(props));
-
-  // restore previous context
-  COMPONENT_CONTEXT = context;
-
-  return component as JSX.ComponentRef;
-}
-
-function getComponentContext() {
-  if (COMPONENT_CONTEXT == null) {
-    throw new Error("No component is currently rendering");
-  }
-
-  return COMPONENT_CONTEXT;
-}
-
-function isComponentRendering() {
-  return COMPONENT_CONTEXT != null;
-}
-
 /**
- * <></>
+ * Creates a node that can be inserted into the standard browser DOM apis such
+ * as document.body.append().
  */
-export function Fragment(props: JSX.PropsWithChildren) {
-  return props.children;
-}
-
 export function jsx(tag: string | JSX.ComponentFunction, props: JSX.Props, ...children: JSX.Child[]): Node {
   let node: Node;
   if (typeof tag === "function") {
@@ -57,15 +20,124 @@ export function jsx(tag: string | JSX.ComponentFunction, props: JSX.Props, ...ch
   }
 
   /**
-   * Only attach children when we are outside of a component rendering context.
+   * Only attach children when we are not inside a component context.
    * This ensures future renders caused by state updates don't remove children
-   * already in the DOM, and we can reuse inserted nodes if possible.
+   * already in the DOM, and we can reuse inserted nodes if possible inside the
+   * reconcile() function.
    */
-  if (!isComponentRendering()) {
+  if (COMPONENT_CONTEXT == null) {
     attach(node, node.__childNodes);
   }
 
   return commit(node, node.__props);
+}
+
+/**
+ * Global component rendering context. Enables the `use*` hooks to have access to
+ * their current component context. When this variable is set, all calls to jsx()
+ * will defer attaching their children to their container -- this enables the
+ * reconcile() function to reuse inserted DOM nodes when possible.
+ */
+let COMPONENT_CONTEXT: JSX.ComponentRef | undefined;
+
+/**
+ * Creates a functional component. Sets the global COMPONENT_CONTEXT for hooks
+ * called inside the function.
+ */
+function createComponent(tag: JSX.ComponentFunction, props: JSX.ComponentProps, state: unknown[] = []) {
+  // save parent component context
+  const context = COMPONENT_CONTEXT;
+
+  // set current component context so that calls to `use` hooks have access
+  const component: JSX.ComponentRef = {
+    props,
+    stateIndex: 0,
+    state,
+    tag,
+  } as JSX.ComponentRef;
+  COMPONENT_CONTEXT = component;
+  component.node = createChild(tag(props));
+
+  // restore parent component rendering context
+
+  // n.b. this will be undefined if this was the top-level component,
+  // allowing the top-level jsx() call to attach children for insertion
+  // into the dom.
+  COMPONENT_CONTEXT = context;
+
+  return component as JSX.ComponentRef;
+}
+
+/**
+ * <></>
+ */
+export function Fragment(props: JSX.PropsWithChildren) {
+  return props.children;
+}
+
+/**
+ * Generic state setter for components.
+ */
+function useCurrentComponentState<T>(initialValue: T) {
+  const lastComponent = COMPONENT_CONTEXT;
+  if (lastComponent == null) {
+    throw new Error("No component is currently rendering");
+  }
+
+  // initial value
+  const index = lastComponent.stateIndex;
+  if (lastComponent.state[index] == null) {
+    lastComponent.state[index] = initialValue;
+  }
+  const value = lastComponent.state[index];
+
+  // advance state index
+  lastComponent.stateIndex++;
+
+  const update = (nextValue: T) => {
+    const t0 = performance.now();
+
+    const nextValues = [...lastComponent.state];
+    nextValues[index] = nextValue;
+
+    const component = createComponent(lastComponent.tag, lastComponent.props, nextValues);
+    component.node = reconcile(component.node, lastComponent.node);
+
+    const t1 = performance.now();
+    console.log(`${component.tag.name} rendered in ${t1 - t0} milliseconds.`);
+  };
+
+  return [value, update] as [T, (value: T) => void];
+}
+
+/**
+ * Returns state value and setter.
+ */
+export function useState<V>(initialValue: V | (() => V)) {
+  const [value, update] = useCurrentComponentState(initialValue instanceof Function ? initialValue() : initialValue);
+
+  const set = (_value: V | ((prev: V) => V)) => {
+    const nextValue = _value instanceof Function ? _value(value) : _value;
+    update(nextValue);
+  };
+
+  return [value, set] as [V, typeof set];
+}
+
+export type Reducer<S, A> = (state: S, action: A) => S;
+
+/**
+ * Returns data and dispatch function.
+ */
+export function useReducer<S = any, A = any>(reducer: Reducer<S, A>, initialState: S, init?: (s: S) => S) {
+  const [state, update] = useCurrentComponentState(init != null ? init(initialState) : initialState);
+
+  const set = (action: A) => {
+    const nextValue = reducer(state, action);
+    update(nextValue);
+  };
+
+  return [state, set] as [S, typeof set];
 }
 
 function createChild(child: JSX.Child) {
@@ -131,6 +203,43 @@ function commit(element: Node, next?: JSX.Props, previous?: JSX.Props) {
   return element;
 }
 
+function reconcile(next: Node, last: Node) {
+  if (last instanceof Text && next instanceof Text) {
+    last.textContent = next.textContent;
+    return last;
+  } else if (last.nodeName === next.nodeName) {
+    const parent = last instanceof DocumentFragment ? getParent(last) : last;
+    const lastChildNodes = last.__childNodes ?? [];
+    const nextChildNodes = next.__childNodes ?? [];
+    const length = Math.max(lastChildNodes.length, nextChildNodes.length);
+    const reconciledChildNodes: Node[] = [];
+    for (let i = 0; i < length; i++) {
+      const lastChildNode = lastChildNodes[i];
+      const nextChildNode = nextChildNodes[i];
+      if (lastChildNode && nextChildNode) {
+        const reconciled = reconcile(nextChildNode, lastChildNode);
+        reconciledChildNodes.push(reconciled);
+      } else if (lastChildNode) {
+        parent.removeChild(lastChildNode);
+      } else if (nextChildNode) {
+        attach(nextChildNode, nextChildNode.__childNodes);
+        parent.appendChild(nextChildNode);
+        reconciledChildNodes.push(nextChildNode);
+      }
+    }
+    last.__childNodes = reconciledChildNodes;
+
+    // recommit next props onto reused last node
+    return commit(last, next.__props, last.__props);
+  } else {
+    // next is already been committed via jsx() call, so we only need to
+    // attach childNodes and replace the last node
+    attach(next, next.__childNodes);
+    replace(next, last);
+    return next;
+  }
+}
+
 function attach(node: Node, childNodes: Node[] = []) {
   for (const child of childNodes) {
     attach(child, child.__childNodes);
@@ -187,95 +296,6 @@ function replace(next: Node, last: Node) {
   }
 }
 
-function reconcile(next: Node, last: Node) {
-  if (last instanceof Text && next instanceof Text) {
-    last.textContent = next.textContent;
-    return last;
-  } else if (last.nodeName === next.nodeName) {
-    const parent = last instanceof DocumentFragment ? getParent(last) : last;
-    const lastChildNodes = last.__childNodes ?? [];
-    const nextChildNodes = next.__childNodes ?? [];
-    const length = Math.max(lastChildNodes.length, nextChildNodes.length);
-    const reconciledChildNodes: Node[] = [];
-    for (let i = 0; i < length; i++) {
-      const lastChildNode = lastChildNodes[i];
-      const nextChildNode = nextChildNodes[i];
-      if (lastChildNode && nextChildNode) {
-        const reconciled = reconcile(nextChildNode, lastChildNode);
-        reconciledChildNodes.push(reconciled);
-      } else if (lastChildNode) {
-        parent.removeChild(lastChildNode);
-      } else if (nextChildNode) {
-        attach(nextChildNode, nextChildNode.__childNodes);
-        parent.appendChild(nextChildNode);
-        reconciledChildNodes.push(nextChildNode);
-      }
-    }
-    last.__childNodes = reconciledChildNodes;
-
-    // recommit next props onto reused last node
-    return commit(last, next.__props, last.__props);
-  } else {
-    // next has already been committed
-    // attach childNodes and replace last node in DOM
-    attach(next, next.__childNodes);
-    replace(next, last);
-    return next;
-  }
-}
-
-function useCurrentComponentState<T>(initialValue: T) {
-  const lastComponent = getComponentContext();
-
-  // initial value
-  const index = lastComponent.stateIndex;
-  if (lastComponent.state[index] == null) {
-    lastComponent.state[index] = initialValue;
-  }
-  const value = lastComponent.state[index];
-
-  // advance state index
-  lastComponent.stateIndex++;
-
-  const update = (nextValue: T) => {
-    const t0 = performance.now();
-
-    const nextValues = [...lastComponent.state];
-    nextValues[index] = nextValue;
-
-    const component = createComponent(lastComponent.tag, lastComponent.props, nextValues);
-    component.node = reconcile(component.node, lastComponent.node);
-
-    const t1 = performance.now();
-    console.log(`${component.tag.name} rendered in ${t1 - t0} milliseconds.`);
-  };
-
-  return [value, update] as [T, (value: T) => void];
-}
-
-export function useState<V>(initialValue: V | (() => V)) {
-  const [value, update] = useCurrentComponentState(initialValue instanceof Function ? initialValue() : initialValue);
-
-  const set = (_value: V | ((prev: V) => V)) => {
-    const nextValue = _value instanceof Function ? _value(value) : _value;
-    update(nextValue);
-  };
-
-  return [value, set] as [V, typeof set];
-}
-
-export type Reducer<S, A> = (state: S, action: A) => S;
-export function useReducer<S = any, A = any>(reducer: Reducer<S, A>, initialState: S, init?: (s: S) => S) {
-  const [state, update] = useCurrentComponentState(init != null ? init(initialState) : initialState);
-
-  const set = (action: A) => {
-    const nextValue = reducer(state, action);
-    update(nextValue);
-  };
-
-  return [state, set] as [S, typeof set];
-}
-
 // damn this is an amazing hack
 type Prettify<T> = {
   [K in keyof T]: T[K];
@@ -310,7 +330,10 @@ type StyleProperty = Exclude<
 
 declare global {
   interface Node {
-    /** retains references to childNodes attached and moved from a DocumentFragment */
+    /**
+     * Required for retaining references to childNodes attached and moved from
+     * a DocumentFragment.
+     */
     __childNodes?: Node[];
     __props?: JSX.Props;
   }
