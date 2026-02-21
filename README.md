@@ -1,6 +1,6 @@
 # jinx
 
-a minimalist jsx rendering library
+a minimalist jsx rendering library (1.669kb gzipped)
 
 ## setup
 
