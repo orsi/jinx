@@ -38,7 +38,6 @@ export function jsx(tag: string | JSX.ComponentFunction, props: JSX.Props, ...ch
   } else {
     node = document.createElement(tag);
     node.__childNodes = [];
-    node.__props = props;
     for (const child of children) {
       const childNode = createChild(child);
       node.__childNodes.push(childNode);
@@ -55,7 +54,7 @@ export function jsx(tag: string | JSX.ComponentFunction, props: JSX.Props, ...ch
     attach(node, node.__childNodes);
   }
 
-  return commit(node, node.__props);
+  return commit(node, props);
 }
 
 /**
@@ -163,7 +162,7 @@ function createChild(child: JSX.Child) {
   return node;
 }
 
-function commit(element: Node, next?: JSX.Props, previous?: JSX.Props) {
+function commit(element: Node, next: JSX.Props, previous?: JSX.Props) {
   if (!(element instanceof HTMLElement)) {
     return element;
   }
@@ -200,6 +199,7 @@ function commit(element: Node, next?: JSX.Props, previous?: JSX.Props) {
     }
   }
 
+  element.__props = next;
   return element;
 }
 
@@ -230,7 +230,7 @@ function reconcile(next: Node, last: Node) {
     last.__childNodes = reconciledChildNodes;
 
     // recommit next props onto reused last node
-    return commit(last, next.__props, last.__props);
+    return commit(last, next.__props ?? {}, last.__props);
   } else {
     // next is already been committed via jsx() call, so we only need to
     // attach childNodes and replace the last node
@@ -333,6 +333,7 @@ declare global {
     __DEBUG__?: boolean;
   }
 
+  // TODO: Attempt to avoid monkey patching Nodes
   interface Node {
     /**
      * Required for retaining references to childNodes attached and moved from
