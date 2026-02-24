@@ -17,7 +17,7 @@ export function jsx(tag: string | JSX.ComponentFunction, props: JSX.Props, ...ch
   if (typeof tag === "function") {
     props.children = children;
 
-    // save parent component context
+    // save context
     const context = COMPONENT_CONTEXT;
 
     // set current component context so that calls to `use` hooks have access
@@ -30,10 +30,9 @@ export function jsx(tag: string | JSX.ComponentFunction, props: JSX.Props, ...ch
       tag,
     } as JSX.ComponentRef;
 
-    const result = tag(props);
-    node = createChild(result);
+    node = COMPONENT_CONTEXT.node = createChild(tag(props));
 
-    COMPONENT_CONTEXT.node = node;
+    // restore context
     COMPONENT_CONTEXT = context;
   } else {
     node = document.createElement(tag);
@@ -75,10 +74,11 @@ function useCurrentComponentState<T>(initialValue: T) {
 
   // initial value
   const index = component.state.index;
-  if (!component.state.values[index]) {
-    component.state.values[index] = { value: initialValue };
+  let stateRef = component.state.values[index];
+  if (!stateRef) {
+    stateRef = component.state.values[index] = { value: initialValue };
   }
-  const { value } = component.state.values[index];
+  const { value } = stateRef;
 
   // advance state index
   component.state.index++;
@@ -86,13 +86,13 @@ function useCurrentComponentState<T>(initialValue: T) {
   const update = (nextValue: T) => {
     const t0 = performance.now();
 
+    stateRef.value = nextValue;
+
     const context = COMPONENT_CONTEXT;
     COMPONENT_CONTEXT = component;
     COMPONENT_CONTEXT.state.index = 0;
-    COMPONENT_CONTEXT.state.values[index] = { value: nextValue };
 
-    const result = COMPONENT_CONTEXT.tag(COMPONENT_CONTEXT.props);
-    const node = createChild(result);
+    const node = createChild(COMPONENT_CONTEXT.tag(COMPONENT_CONTEXT.props));
 
     if (!component.node) {
       throw new Error("Component has no rendered node.");
