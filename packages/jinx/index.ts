@@ -1,14 +1,40 @@
 /**
+ * Global component rendering context. Enables the `use*` hooks to have access to
+ * their current component context. When this variable is set, all calls to jsx()
+ * will defer attaching their children to their container -- this enables the
+ * reconcile() function to reuse inserted DOM nodes when possible.
+ */
+let COMPONENT_CONTEXT: JSX.ComponentRef | undefined;
+
+/**
  * Creates a node that can be inserted into the standard browser DOM apis such
  * as document.body.append().
  */
 export function jsx(tag: string | JSX.ComponentFunction, props: JSX.Props, ...children: JSX.Child[]): Node {
+  props = props ?? {};
+
   let node: Node;
   if (typeof tag === "function") {
-    props = props ?? {};
     props.children = children;
-    const component = createComponent(tag, props);
-    node = component.node;
+
+    // save parent component context
+    const context = COMPONENT_CONTEXT;
+
+    // set current component context so that calls to `use` hooks have access
+    COMPONENT_CONTEXT = {
+      props,
+      state: {
+        index: 0,
+        values: [],
+      },
+      tag,
+    } as JSX.ComponentRef;
+
+    const result = tag(props);
+    node = createChild(result);
+
+    COMPONENT_CONTEXT.node = node;
+    COMPONENT_CONTEXT = context;
   } else {
     node = document.createElement(tag);
     node.__childNodes = [];
@@ -33,42 +59,6 @@ export function jsx(tag: string | JSX.ComponentFunction, props: JSX.Props, ...ch
 }
 
 /**
- * Global component rendering context. Enables the `use*` hooks to have access to
- * their current component context. When this variable is set, all calls to jsx()
- * will defer attaching their children to their container -- this enables the
- * reconcile() function to reuse inserted DOM nodes when possible.
- */
-let COMPONENT_CONTEXT: JSX.ComponentRef | undefined;
-
-/**
- * Creates a functional component. Sets the global COMPONENT_CONTEXT for hooks
- * called inside the function.
- */
-function createComponent(tag: JSX.ComponentFunction, props: JSX.ComponentProps, state: unknown[] = []) {
-  // save parent component context
-  const context = COMPONENT_CONTEXT;
-
-  // set current component context so that calls to `use` hooks have access
-  const component: JSX.ComponentRef = {
-    props,
-    stateIndex: 0,
-    state,
-    tag,
-  } as JSX.ComponentRef;
-  COMPONENT_CONTEXT = component;
-  component.node = createChild(tag(props));
-
-  // restore parent component rendering context
-
-  // n.b. this will be undefined if this was the top-level component,
-  // allowing the top-level jsx() call to attach children for insertion
-  // into the dom.
-  COMPONENT_CONTEXT = context;
-
-  return component as JSX.ComponentRef;
-}
-
-/**
  * <></>
  */
 export function Fragment(props: JSX.PropsWithChildren) {
@@ -79,32 +69,42 @@ export function Fragment(props: JSX.PropsWithChildren) {
  * Generic state setter for components.
  */
 function useCurrentComponentState<T>(initialValue: T) {
-  const lastComponent = COMPONENT_CONTEXT;
-  if (lastComponent == null) {
+  const component = COMPONENT_CONTEXT;
+  if (!component) {
     throw new Error("No component is currently rendering");
   }
 
   // initial value
-  const index = lastComponent.stateIndex;
-  if (lastComponent.state[index] == null) {
-    lastComponent.state[index] = initialValue;
+  const index = component.state.index;
+  if (!component.state.values[index]) {
+    component.state.values[index] = { value: initialValue };
   }
-  const value = lastComponent.state[index];
+  const { value } = component.state.values[index];
 
   // advance state index
-  lastComponent.stateIndex++;
+  component.state.index++;
 
   const update = (nextValue: T) => {
     const t0 = performance.now();
 
-    const nextValues = [...lastComponent.state];
-    nextValues[index] = nextValue;
+    const context = COMPONENT_CONTEXT;
+    COMPONENT_CONTEXT = component;
+    COMPONENT_CONTEXT.state.index = 0;
+    COMPONENT_CONTEXT.state.values[index] = { value: nextValue };
 
-    const component = createComponent(lastComponent.tag, lastComponent.props, nextValues);
-    component.node = reconcile(component.node, lastComponent.node);
+    const result = COMPONENT_CONTEXT.tag(COMPONENT_CONTEXT.props);
+    const node = createChild(result);
 
-    const t1 = performance.now();
-    console.log(`${component.tag.name} rendered in ${t1 - t0} milliseconds.`);
+    if (!component.node) {
+      throw new Error("Component has no rendered node.");
+    }
+    COMPONENT_CONTEXT.node = reconcile(node, component.node);
+    COMPONENT_CONTEXT = context;
+
+    if (window.__DEBUG__) {
+      const t1 = performance.now();
+      console.log(`${component.tag.name} rendered in ${t1 - t0} milliseconds.`);
+    }
   };
 
   return [value, update] as [T, (value: T) => void];
@@ -329,6 +329,10 @@ type StyleProperty = Exclude<
 >;
 
 declare global {
+  interface Window {
+    __DEBUG__?: boolean;
+  }
+
   interface Node {
     /**
      * Required for retaining references to childNodes attached and moved from
@@ -351,11 +355,17 @@ declare global {
 
     type ComponentFunction<T = any> = (props: ComponentProps & T) => Children;
 
+    type ComponentState = {
+      index: number;
+      values: {
+        value: unknown;
+      }[];
+    };
+
     type ComponentRef = {
-      node: Node;
+      node?: Node;
       props: ComponentProps;
-      stateIndex: number;
-      state: unknown[];
+      state: ComponentState;
       tag: ComponentFunction;
     };
 

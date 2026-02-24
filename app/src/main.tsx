@@ -83,6 +83,42 @@ function test(
   };
 }
 
+let NullStateTestState: any;
+test(
+  "State should change to null",
+  () => {
+    const NullStateTest = () => {
+      NullStateTestState = useState(1);
+      const [data] = NullStateTestState;
+      return data;
+    };
+
+    return <NullStateTest />;
+  },
+  ($container) => {
+    NullStateTestState[1](null);
+    return $container.childNodes[0] instanceof Comment;
+  }
+);
+
+let UndefinedStateTestState: any;
+test(
+  "State should change to undefined",
+  () => {
+    const UndefinedStateTest = () => {
+      UndefinedStateTestState = useState("hi");
+      const [data] = UndefinedStateTestState;
+      return data;
+    };
+
+    return <UndefinedStateTest />;
+  },
+  ($container) => {
+    UndefinedStateTestState[1](undefined);
+    return $container.childNodes[0] instanceof Comment;
+  }
+);
+
 test(
   "JSX CSS style object test",
   () => (
@@ -545,6 +581,7 @@ test(
 );
 
 let CreateRowReducer: any;
+let runCount = 0;
 test(
   "CreateRowReducerTest",
   () => {
@@ -557,6 +594,7 @@ test(
     };
 
     const listReducer = (state: typeof initialState, action: any) => {
+      runCount++;
       switch (action.type) {
         case "RUN":
           return {
@@ -619,8 +657,12 @@ test(
     return <CreateRowReducerTest />;
   },
   ($container) => {
-    CreateRowReducer[1]({ type: "RUN" });
-    return $container.querySelector("tr.row") != null;
+    const button = $container.querySelector<HTMLButtonElement>("#run");
+    button?.click();
+    button?.click();
+    button?.click();
+    const rows = $container.querySelectorAll("tr.row");
+    return rows.length === 3 && runCount === 3;
   }
 );
 
