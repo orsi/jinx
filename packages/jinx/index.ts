@@ -1,142 +1,143 @@
+declare global {
+  // damn this is an amazing hack
+  type Prettify<T> = {
+    [K in keyof T]: T[K];
+  } & {};
+
+  type IntrinsicHTMLElement<T extends keyof HTMLElementTagNameMap> = Prettify<
+    Partial<Omit<HTMLElementTagNameMap[T], "style" | "class">> & {
+      // TODO: gotta be a better way to do these
+      style?: Partial<CSSStyleDeclaration>;
+      class?: string;
+      children?: any;
+    } & {
+      // hot damn does this actually work?? onclick => onClick
+      [K in keyof GlobalEventHandlers as K extends `on${infer E}`
+        ? `on${Capitalize<E>}`
+        : keyof GlobalEventHandlers]?: GlobalEventHandlers[K];
+    }
+  >;
+
+  /**
+   * When accessing the `style` property of an HTMLElement dynamically, typing
+   * a string to `keyof CSSStyleDeclaration` doesn't work for some reason.
+   * cf. https://github.com/microsoft/TypeScript/issues/17827#issuecomment-2008561761
+   */
+  type StyleProperty = Exclude<
+    keyof Omit<
+      CSSStyleDeclaration,
+      "length" | "parentRule" | "getPropertyPriority" | "getPropertyValue" | "item" | "removeProperty" | "setProperty"
+    >,
+    number
+  >;
+
+  interface Window {
+    __DEBUG__?: boolean;
+  }
+
+  // TODO: Attempt to avoid monkey patching Nodes
+  interface Node {
+    /**
+     * Required for retaining references to childNodes attached and moved from
+     * a DocumentFragment.
+     */
+    __childNodes?: Node[];
+    __props?: JSX.Props;
+  }
+
+  namespace JSX {
+    type Child = null | string | number | boolean | Node | Child[];
+
+    type Children = Child | Child[];
+
+    type Props = Record<string, unknown>;
+
+    type PropsWithChildren = { children?: Children };
+
+    type ComponentProps = Props & PropsWithChildren;
+
+    type ComponentFunction<T = any> = (props: ComponentProps & T) => Children;
+
+    type ComponentRef = {
+      props: ComponentProps;
+      hookIndex: number;
+      hooks: unknown[];
+      tag: ComponentFunction;
+      result: Children;
+    };
+
+    type IntrinsicElements = {
+      [key in keyof HTMLElementTagNameMap]: IntrinsicHTMLElement<key>;
+    } & {
+      [key: string]: any;
+    };
+
+    type Element = string | HTMLElement | DocumentFragment;
+
+    type ElementType = keyof IntrinsicElements | ComponentFunction;
+  }
+}
+
 /**
- * Global component rendering context. Enables the `use*` hooks to have access to
+ * Current component rendering context. Enables hooks to have access to
  * their current component context. When this variable is set, all calls to jsx()
  * will defer attaching their children to their container -- this enables the
  * reconcile() function to reuse inserted DOM nodes when possible.
  */
-let COMPONENT_CONTEXT: JSX.ComponentRef | undefined;
+const COMPONENT_REF: {
+  current: JSX.ComponentRef | undefined;
+} = { current: undefined };
 
 /**
- * Creates a node that can be inserted into the standard browser DOM apis such
- * as document.body.append().
+ * Component node map. Components should always have an associated dom
+ * node once rendered by the jsx() function. This is used when component state
+ * updates reconcile the next render.
  */
-export function jsx(tag: string | JSX.ComponentFunction, props: JSX.Props, ...children: JSX.Child[]): Node {
-  props = props ?? {};
-
-  let node: Node;
-  if (typeof tag === "function") {
-    props.children = children;
-
-    // save context
-    const context = COMPONENT_CONTEXT;
-
-    // set current component context so that calls to `use` hooks have access
-    COMPONENT_CONTEXT = {
-      props,
-      state: {
-        index: 0,
-        values: [],
-      },
-      tag,
-    } as JSX.ComponentRef;
-
-    node = COMPONENT_CONTEXT.node = createChild(tag(props));
-
-    // restore context
-    COMPONENT_CONTEXT = context;
-  } else {
-    node = document.createElement(tag);
-    node.__childNodes = [];
-    for (const child of children) {
-      const childNode = createChild(child);
-      node.__childNodes.push(childNode);
-    }
-  }
-
-  /**
-   * Only attach children when we are not inside a component context.
-   * This ensures future renders caused by state updates don't remove children
-   * already in the DOM, and we can reuse inserted nodes if possible inside the
-   * reconcile() function.
-   */
-  if (COMPONENT_CONTEXT == null) {
-    attach(node, node.__childNodes);
-  }
-
-  return commit(node, props);
-}
-
-/**
- * <></>
- */
-export function Fragment(props: JSX.PropsWithChildren) {
-  return props.children;
-}
+const COMPONENT_NODE_MAP = new WeakMap<JSX.ComponentRef, Node>();
 
 /**
  * Generic state setter for components.
  */
 function useCurrentComponentState<T>(initialValue: T) {
-  const component = COMPONENT_CONTEXT;
-  if (!component) {
-    throw new Error("No component is currently rendering");
-  }
+  const component = getCurrentComponent();
 
-  // initial value
-  const index = component.state.index;
-  let stateRef = component.state.values[index];
-  if (!stateRef) {
-    stateRef = component.state.values[index] = { value: initialValue };
-  }
-  const { value } = stateRef;
+  const index = component.hookIndex;
+  const value = component.hooks.hasOwnProperty(index) ? component.hooks[index] : initialValue;
 
-  // advance state index
-  component.state.index++;
+  // advance hook index
+  component.hookIndex++;
 
   const update = (nextValue: T) => {
+    if (Object.is(nextValue, value)) {
+      // same value
+      return false;
+    }
+
     const t0 = performance.now();
 
-    stateRef.value = nextValue;
-
-    const context = COMPONENT_CONTEXT;
-    COMPONENT_CONTEXT = component;
-    COMPONENT_CONTEXT.state.index = 0;
-
-    const node = createChild(COMPONENT_CONTEXT.tag(COMPONENT_CONTEXT.props));
-
-    if (!component.node) {
-      throw new Error("Component has no rendered node.");
+    const domNode = COMPONENT_NODE_MAP.get(component);
+    if (!domNode) {
+      throw new Error("No node for component");
     }
-    COMPONENT_CONTEXT.node = reconcile(node, component.node);
-    COMPONENT_CONTEXT = context;
+
+    component.hooks[index] = nextValue;
+
+    const hooks = [...component.hooks];
+    const newComponent = createComponent(component.tag, component.props, hooks);
+    const newNode = createChild(newComponent.result);
+
+    const reconciledNode = reconcile(newNode, domNode);
+    COMPONENT_NODE_MAP.set(newComponent, reconciledNode);
 
     if (window.__DEBUG__) {
       const t1 = performance.now();
       console.log(`${component.tag.name} rendered in ${t1 - t0} milliseconds.`);
     }
+
+    return true;
   };
 
   return [value, update] as [T, (value: T) => void];
-}
-
-/**
- * Returns state value and setter.
- */
-export function useState<V>(initialValue: V | (() => V)) {
-  const [value, update] = useCurrentComponentState(initialValue instanceof Function ? initialValue() : initialValue);
-
-  const set = (_value: V | ((prev: V) => V)) => {
-    const nextValue = _value instanceof Function ? _value(value) : _value;
-    update(nextValue);
-  };
-
-  return [value, set] as [V, typeof set];
-}
-
-export type Reducer<S, A> = (state: S, action: A) => S;
-
-/**
- * Returns data and dispatch function.
- */
-export function useReducer<S = any, A = any>(reducer: Reducer<S, A>, initialState: S, init?: (s: S) => S) {
-  const [state, update] = useCurrentComponentState(init != null ? init(initialState) : initialState);
-
-  const set = (action: A) => {
-    const nextValue = reducer(state, action);
-    update(nextValue);
-  };
-
-  return [state, set] as [S, typeof set];
 }
 
 function createChild(child: JSX.Child) {
@@ -162,6 +163,40 @@ function createChild(child: JSX.Child) {
   return node;
 }
 
+function createComponent(tag: JSX.ComponentFunction, props: JSX.Props, hooks: unknown[] = []) {
+  // save context
+  const context = COMPONENT_REF.current;
+
+  // set current component context so that calls to `use` hooks have access
+  const component = {
+    props,
+    hookIndex: 0,
+    hooks,
+    tag,
+  } as JSX.ComponentRef;
+
+  COMPONENT_REF.current = component;
+
+  component.result = tag(props);
+
+  // restore context
+  COMPONENT_REF.current = context;
+
+  return component;
+}
+
+function hasComponentContext() {
+  return COMPONENT_REF.current !== undefined;
+}
+
+function getCurrentComponent() {
+  if (!COMPONENT_REF.current) {
+    throw new Error("No component.");
+  }
+
+  return COMPONENT_REF.current;
+}
+
 function commit(element: Node, next: JSX.Props, previous?: JSX.Props) {
   if (!(element instanceof HTMLElement)) {
     return element;
@@ -183,7 +218,7 @@ function commit(element: Node, next: JSX.Props, previous?: JSX.Props) {
   }
 
   // apply next
-  for (const [prop, value] of Object.entries(next ?? {})) {
+  for (const [prop, value] of Object.entries(next)) {
     const isEvent = prop.startsWith("on") && prop.substring(2).toLowerCase() in element;
     if (isEvent) {
       const eventName = prop.substring(2).toLowerCase() as keyof ElementEventMap;
@@ -199,7 +234,9 @@ function commit(element: Node, next: JSX.Props, previous?: JSX.Props) {
     }
   }
 
+  // transfer next props
   element.__props = next;
+
   return element;
 }
 
@@ -296,88 +333,74 @@ function replace(next: Node, last: Node) {
   }
 }
 
-// damn this is an amazing hack
-type Prettify<T> = {
-  [K in keyof T]: T[K];
-} & {};
+/**
+ * Creates a node that can be inserted into the standard browser DOM apis such
+ * as document.body.append().
+ */
+export function jsx(tag: string | JSX.ComponentFunction, props: JSX.Props, ...children: JSX.Child[]): Node {
+  props = props ?? {};
 
-type IntrinsicHTMLElement<T extends keyof HTMLElementTagNameMap> = Prettify<
-  Partial<Omit<HTMLElementTagNameMap[T], "style" | "class">> & {
-    // TODO: gotta be a better way to do these
-    style?: Partial<CSSStyleDeclaration>;
-    class?: string;
-    children?: any;
-  } & {
-    // hot damn does this actually work?? onclick => onClick
-    [K in keyof GlobalEventHandlers as K extends `on${infer E}`
-      ? `on${Capitalize<E>}`
-      : keyof GlobalEventHandlers]?: GlobalEventHandlers[K];
+  let node: Node;
+  if (typeof tag === "function") {
+    props.children = children;
+    const component = createComponent(tag, props);
+    node = createChild(component.result);
+    COMPONENT_NODE_MAP.set(component, node);
+  } else {
+    node = document.createElement(tag);
+    node.__childNodes = [];
+    for (const child of children) {
+      const childNode = createChild(child);
+      node.__childNodes.push(childNode);
+    }
   }
->;
+
+  /**
+   * Only attach children when we are not inside a component context.
+   * This ensures future renders caused by state updates don't remove children
+   * already in the DOM, and we can reuse inserted nodes if possible inside the
+   * reconcile() function.
+   */
+  if (!hasComponentContext()) {
+    attach(node, node.__childNodes);
+  }
+
+  return commit(node, props);
+}
 
 /**
- * When accessing the `style` property of an HTMLElement dynamically, typing
- * a string to `keyof CSSStyleDeclaration` doesn't work for some reason.
- * cf. https://github.com/microsoft/TypeScript/issues/17827#issuecomment-2008561761
+ * <></>
  */
-type StyleProperty = Exclude<
-  keyof Omit<
-    CSSStyleDeclaration,
-    "length" | "parentRule" | "getPropertyPriority" | "getPropertyValue" | "item" | "removeProperty" | "setProperty"
-  >,
-  number
->;
+export function Fragment(props: JSX.PropsWithChildren) {
+  return props.children;
+}
 
-declare global {
-  interface Window {
-    __DEBUG__?: boolean;
-  }
+/**
+ * Returns state value and setter.
+ */
+export function useState<V>(initialValue: V | (() => V)) {
+  const [value, update] = useCurrentComponentState(initialValue instanceof Function ? initialValue() : initialValue);
 
-  // TODO: Attempt to avoid monkey patching Nodes
-  interface Node {
-    /**
-     * Required for retaining references to childNodes attached and moved from
-     * a DocumentFragment.
-     */
-    __childNodes?: Node[];
-    __props?: JSX.Props;
-  }
+  const set = (_value: V | ((prev: V) => V)) => {
+    const nextValue = _value instanceof Function ? _value(value) : _value;
+    return update(nextValue);
+  };
 
-  namespace JSX {
-    type Child = null | string | number | boolean | Node | Child[];
+  return [value, set] as [V, typeof set];
+}
 
-    type Children = Child | Child[];
+export type Reducer<S, A> = (state: S, action: A) => S;
 
-    type Props = Record<string, unknown>;
+/**
+ * Returns data and dispatch function.
+ */
+export function useReducer<S = any, A = any>(reducer: Reducer<S, A>, initialState: S, init?: (s: S) => S) {
+  const [state, update] = useCurrentComponentState(init != null ? init(initialState) : initialState);
 
-    type PropsWithChildren = { children?: Children };
+  const set = (action: A) => {
+    const nextValue = reducer(state, action);
+    return update(nextValue);
+  };
 
-    type ComponentProps = Props & PropsWithChildren;
-
-    type ComponentFunction<T = any> = (props: ComponentProps & T) => Children;
-
-    type ComponentState = {
-      index: number;
-      values: {
-        value: unknown;
-      }[];
-    };
-
-    type ComponentRef = {
-      node?: Node;
-      props: ComponentProps;
-      state: ComponentState;
-      tag: ComponentFunction;
-    };
-
-    type IntrinsicElements = {
-      [key in keyof HTMLElementTagNameMap]: IntrinsicHTMLElement<key>;
-    } & {
-      [key: string]: any;
-    };
-
-    type Element = string | HTMLElement | DocumentFragment;
-
-    type ElementType = keyof IntrinsicElements | ComponentFunction;
-  }
+  return [state, set] as [S, typeof set];
 }
