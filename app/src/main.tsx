@@ -83,6 +83,48 @@ function test(
   };
 }
 
+let DoNotRenderSameStateTestState: any;
+test(
+  "Should not update on setting same state",
+  () => {
+    const DoNotRenderSameStateTest = () => {
+      DoNotRenderSameStateTestState = useState(1);
+      return (
+        <small id="test">
+          {DoNotRenderSameStateTestState[0]} ={">"} setState(1)
+        </small>
+      );
+    };
+
+    return <DoNotRenderSameStateTest />;
+  },
+  () => {
+    const didUpdate = DoNotRenderSameStateTestState[1](1);
+    return !didUpdate;
+  }
+);
+
+let RenderOnDifferentStateTestState: any;
+test(
+  "Should update on setting different state",
+  () => {
+    const RenderOnDifferentStateTest = () => {
+      RenderOnDifferentStateTestState = useState(1);
+      return (
+        <small>
+          {DoNotRenderSameStateTestState[0]} ={">"} setState(2)
+        </small>
+      );
+    };
+
+    return <RenderOnDifferentStateTest />;
+  },
+  () => {
+    const didUpdate = RenderOnDifferentStateTestState[1](2);
+    return didUpdate;
+  }
+);
+
 let NullStateTestState: any;
 test(
   "State should change to null",
