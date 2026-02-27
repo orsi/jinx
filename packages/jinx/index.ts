@@ -37,15 +37,19 @@ declare global {
 
   // TODO: Attempt to avoid monkey patching Nodes
   interface Node {
-    /**
-     * Required for retaining references to childNodes attached and moved from
-     * a DocumentFragment.
-     */
-    __childNodes?: Node[];
-    __props?: JSX.Props;
+    __jinx?: JSX.Ref;
   }
 
   namespace JSX {
+    type Ref = {
+      /**
+       * Required for retaining references to childNodes attached and moved from
+       * a DocumentFragment.
+       */
+      childNodes?: Node[];
+      props?: JSX.Props;
+    };
+
     type Child = null | string | number | boolean | Node | Child[];
 
     type Children = Child | Child[];
@@ -87,6 +91,16 @@ declare global {
  */
 const COMPONENT_REF: {
   current: JSX.ComponentRef | undefined;
+} = { current: undefined };
+
+/**
+ * Current component rendering context. Enables hooks to have access to
+ * their current component context. When this variable is set, all calls to jsx()
+ * will defer attaching their children to their container -- this enables the
+ * reconcile() function to reuse inserted DOM nodes when possible.
+ */
+const JSX_REF: {
+  current: JSX.Ref | undefined;
 } = { current: undefined };
 
 /**
@@ -144,10 +158,10 @@ function createChild(child: JSX.Child) {
     node = document.createTextNode(text);
   } else {
     node = document.createDocumentFragment();
-    node.__childNodes = [];
+    node.__jinx = { childNodes: [] };
     for (const subChild of child) {
       const subNode = createChild(subChild);
-      node.__childNodes.push(subNode);
+      node.__jinx.childNodes?.push(subNode);
     }
   }
 
@@ -226,7 +240,9 @@ function commit(element: Node, next: JSX.Props, previous?: JSX.Props) {
   }
 
   // transfer next props
-  element.__props = next;
+  if (element.__jinx) {
+    element.__jinx.props = next;
+  }
 
   return element;
 }
@@ -237,8 +253,8 @@ function reconcile(next: Node, last: Node) {
     return last;
   } else if (last.nodeName === next.nodeName) {
     const parent = last instanceof DocumentFragment ? getParent(last) : last;
-    const lastChildNodes = last.__childNodes ?? [];
-    const nextChildNodes = next.__childNodes ?? [];
+    const lastChildNodes = last.__jinx?.childNodes ?? [];
+    const nextChildNodes = next.__jinx?.childNodes ?? [];
     const length = Math.max(lastChildNodes.length, nextChildNodes.length);
     const reconciledChildNodes: Node[] = [];
     for (let i = 0; i < length; i++) {
@@ -250,19 +266,22 @@ function reconcile(next: Node, last: Node) {
       } else if (lastChildNode) {
         parent.removeChild(lastChildNode);
       } else if (nextChildNode) {
-        attach(nextChildNode, nextChildNode.__childNodes);
+        attach(nextChildNode, nextChildNode.__jinx?.childNodes);
         parent.appendChild(nextChildNode);
         reconciledChildNodes.push(nextChildNode);
       }
     }
-    last.__childNodes = reconciledChildNodes;
+
+    if (last.__jinx) {
+      last.__jinx.childNodes = reconciledChildNodes;
+    }
 
     // recommit next props onto reused last node
-    return commit(last, next.__props ?? {}, last.__props);
+    return commit(last, next.__jinx?.props ?? {}, last.__jinx?.props);
   } else {
     // next is already been committed via jsx() call, so we only need to
     // attach childNodes and replace the last node
-    attach(next, next.__childNodes);
+    attach(next, next.__jinx?.childNodes);
     replace(next, last);
     return next;
   }
@@ -270,7 +289,7 @@ function reconcile(next: Node, last: Node) {
 
 function attach(node: Node, childNodes: Node[] = []) {
   for (const child of childNodes) {
-    attach(child, child.__childNodes);
+    attach(child, child.__jinx?.childNodes);
     node.appendChild(child);
   }
 }
@@ -279,7 +298,7 @@ function getParent(node: Node): Node {
   if (node.parentNode != null) {
     return node.parentNode;
   } else {
-    for (const childNode of node.__childNodes ?? []) {
+    for (const childNode of node.__jinx?.childNodes ?? []) {
       const parent = getParent(childNode);
       if (parent) {
         return parent;
@@ -292,7 +311,7 @@ function getParent(node: Node): Node {
 
 function getChildNodes(node: Node): ChildNode[] {
   const childNodes: ChildNode[] = [];
-  for (const childNode of node.__childNodes ?? []) {
+  for (const childNode of node.__jinx?.childNodes ?? []) {
     if (childNode instanceof DocumentFragment) {
       const subNodes = getChildNodes(childNode);
       childNodes.push(...subNodes);
@@ -339,10 +358,12 @@ export function jsx(tag: string | JSX.ComponentFunction, props: JSX.Props, ...ch
     node = component.childNode;
   } else {
     node = document.createElement(tag);
-    node.__childNodes = [];
+    node.__jinx = {
+      childNodes: [],
+    };
     for (const child of children) {
       const childNode = createChild(child);
-      node.__childNodes.push(childNode);
+      node.__jinx.childNodes?.push(childNode);
     }
   }
 
@@ -353,7 +374,7 @@ export function jsx(tag: string | JSX.ComponentFunction, props: JSX.Props, ...ch
    * reconcile() function.
    */
   if (!hasComponentContext()) {
-    attach(node, node.__childNodes);
+    attach(node, node.__jinx?.childNodes);
   }
 
   return commit(node, props);
