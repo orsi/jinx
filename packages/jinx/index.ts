@@ -60,10 +60,11 @@ declare global {
 
     type ComponentRef = {
       props: ComponentProps;
-      hookIndex: number;
+      hooksIndex: number;
       hooks: unknown[];
       tag: ComponentFunction;
       result: Children;
+      childNode?: Node;
     };
 
     type IntrinsicElements = {
@@ -89,23 +90,16 @@ const COMPONENT_REF: {
 } = { current: undefined };
 
 /**
- * Component node map. Components should always have an associated dom
- * node once rendered by the jsx() function. This is used when component state
- * updates reconcile the next render.
- */
-const COMPONENT_NODE_MAP = new WeakMap<JSX.ComponentRef, Node>();
-
-/**
  * Generic state setter for components.
  */
 function useCurrentComponentState<T>(initialValue: T) {
   const component = getCurrentComponent();
 
-  const index = component.hookIndex;
+  const index = component.hooksIndex;
   const value = component.hooks.hasOwnProperty(index) ? component.hooks[index] : initialValue;
 
   // advance hook index
-  component.hookIndex++;
+  component.hooksIndex++;
 
   const update = (nextValue: T) => {
     if (Object.is(nextValue, value)) {
@@ -115,19 +109,16 @@ function useCurrentComponentState<T>(initialValue: T) {
 
     const t0 = performance.now();
 
-    const domNode = COMPONENT_NODE_MAP.get(component);
-    if (!domNode) {
-      throw new Error("No node for component");
-    }
-
     component.hooks[index] = nextValue;
 
     const hooks = [...component.hooks];
     const newComponent = createComponent(component.tag, component.props, hooks);
     const newNode = createChild(newComponent.result);
 
-    const reconciledNode = reconcile(newNode, domNode);
-    COMPONENT_NODE_MAP.set(newComponent, reconciledNode);
+    if (!component.childNode) {
+      throw new Error("No node for component");
+    }
+    newComponent.childNode = reconcile(newNode, component.childNode);
 
     if (window.__DEBUG__) {
       const t1 = performance.now();
@@ -170,7 +161,7 @@ function createComponent(tag: JSX.ComponentFunction, props: JSX.Props, hooks: un
   // set current component context so that calls to `use` hooks have access
   const component = {
     props,
-    hookIndex: 0,
+    hooksIndex: 0,
     hooks,
     tag,
   } as JSX.ComponentRef;
@@ -344,8 +335,8 @@ export function jsx(tag: string | JSX.ComponentFunction, props: JSX.Props, ...ch
   if (typeof tag === "function") {
     props.children = children;
     const component = createComponent(tag, props);
-    node = createChild(component.result);
-    COMPONENT_NODE_MAP.set(component, node);
+    component.childNode = createChild(component.result);
+    node = component.childNode;
   } else {
     node = document.createElement(tag);
     node.__childNodes = [];
