@@ -2,6 +2,9 @@ import { defineConfig } from "vite";
 import path from "path";
 
 export default defineConfig({
+  define: {
+    __DEBUG__: true,
+  },
   esbuild: {
     jsx: "transform",
     jsxFactory: "__jsx",
