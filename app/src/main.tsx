@@ -1,9 +1,9 @@
 import "./main.css";
 import { useState, useReducer, Reducer } from "jinx";
 
-const TESTS: (() => { name: string; result?: boolean; hasResult: boolean })[] = [];
+const TESTS: (() => { name: string; result?: Promise<boolean>; hasResult: boolean })[] = [];
 
-function runTests() {
+async function runTests() {
   const $resultsContainer = document.createElement("div");
   $resultsContainer.style.margin = "16px 24px";
   $resultsContainer.style.paddingBottom = "16px";
@@ -12,8 +12,9 @@ function runTests() {
   const results = [];
   for (const test of TESTS) {
     const t = test();
-    results.push(t);
-    if (t.hasResult && !t.result) {
+    const hasResult = t.hasResult;
+    const result = await t.result;
+    if (hasResult && !result) {
       const $testContainer = document.createElement("div");
       $testContainer.style.fontSize = "12px";
       $testContainer.style.color = "grey";
@@ -21,6 +22,7 @@ function runTests() {
       $testContainer.textContent = t.name;
       $resultsContainer.append($testContainer);
     }
+    results.push({ hasResult, result });
   }
 
   if (results.every((t) => !t.hasResult || t.result)) {
@@ -60,14 +62,21 @@ function test(
     $testResult.style.margin = "16px 0px 0px 0px";
     $testResult.append(typeof TestResult === "function" ? <TestResult /> : TestResult);
     $testContainer.append($testResult);
-    const result = testResultFn?.($testResult);
-    if (result != null) {
-      const $resultHeader = document.createElement("pre");
-      $resultHeader.style.fontSize = "12px";
-      $resultHeader.style.margin = "16px 0px 0px 0px";
-      $resultHeader.textContent = `result: ${result}`;
-      $testContainer.append($resultHeader);
-    }
+
+    // n.b. allows effects to run before tests
+    const result = new Promise<boolean>((resolve) => {
+      setTimeout(() => {
+        const result = testResultFn?.($testResult);
+        if (result != null) {
+          const $resultHeader = document.createElement("pre");
+          $resultHeader.style.fontSize = "12px";
+          $resultHeader.style.margin = "16px 0px 0px 0px";
+          $resultHeader.textContent = `result: ${result}`;
+          $testContainer.append($resultHeader);
+        }
+        resolve(result ?? false);
+      }, 0);
+    });
 
     return {
       name,
@@ -187,7 +196,7 @@ test(
   () => {
     const FragmentTest = ({ children }: JSX.PropsWithChildren) => {
       FragmentTestState = useState(0);
-      const [count, setCount] = FragmentTestState;
+      const [count] = FragmentTestState;
       return (
         <>
           <>one, </>
