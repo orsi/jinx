@@ -340,8 +340,10 @@ export function jsx(tag: string | JSX.ComponentFunction, props: JSX.Props, ...ch
 
   let node: Node;
   if (typeof tag === "function") {
-    props.children = children;
-    const component = createComponent(tag, props);
+    const component = createComponent(tag, {
+      ...props,
+      children,
+    });
     component.childNode = createChild(component.result);
     node = component.childNode;
     ref.component = component;
