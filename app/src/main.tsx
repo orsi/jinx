@@ -93,6 +93,20 @@ function test(
 }
 
 test(
+  "Should not have children props",
+  () => {
+    const UseEffectTest = () => {
+      return <div id="children-test">children prop</div>;
+    };
+
+    return <UseEffectTest />;
+  },
+  ($container) => {
+    return !$container.querySelector("#children-test")?.hasAttribute("children");
+  }
+);
+
+test(
   "Use effect runs after render into DOM",
   () => {
     const UseEffectTest = () => {
