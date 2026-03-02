@@ -384,6 +384,8 @@ const observer = new MutationObserver((mutations) => {
         });
         node.__jinx.component.renderState = "rendered";
       }
+    } else {
+      JSX_NODES_SET.delete(node);
     }
   }
 });
@@ -454,7 +456,8 @@ export function useState<V>(initialValue: V | (() => V)) {
     }
 
     hook.value = nextValue;
-    return rerenderComponent(hook.parent);
+    rerenderComponent(hook.parent);
+    return true;
   };
 
   return [hook.value, set] as [V, typeof set];
@@ -479,7 +482,8 @@ export function useReducer<S = any, A = any>(reducer: Reducer<S, A>, initialStat
     }
 
     hook.value = nextValue;
-    return rerenderComponent(hook.parent);
+    rerenderComponent(hook.parent);
+    return true;
   };
 
   return [hook.value, set] as [S, typeof set];

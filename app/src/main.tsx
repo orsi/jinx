@@ -25,7 +25,7 @@ async function runTests() {
     results.push({ hasResult, result });
   }
 
-  if (results.every((t) => !t.hasResult || t.result)) {
+  if (results.every((t) => !t.hasResult || t.result === true)) {
     $resultsContainer.style.color = "green";
     $resultsContainer.prepend("ALL TESTS PASSED");
   } else {
