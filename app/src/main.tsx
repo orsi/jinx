@@ -1,5 +1,5 @@
 import "./main.css";
-import { useState, useReducer, Reducer } from "jinx";
+import { useState, useReducer, Reducer, useEffect } from "jinx";
 
 const TESTS: (() => { name: string; result?: Promise<boolean>; hasResult: boolean })[] = [];
 
@@ -91,6 +91,27 @@ function test(
     },
   };
 }
+
+test(
+  "Use effect runs after render into DOM",
+  () => {
+    const UseEffectTest = () => {
+      useEffect(() => {
+        const el = document.querySelector<HTMLDivElement>("#use-effect-test");
+        console.log("useEffect!", el);
+        if (el) {
+          el.textContent = "hi";
+        }
+      }, []);
+      return <div id="use-effect-test"></div>;
+    };
+
+    return <UseEffectTest />;
+  },
+  ($container) => {
+    return $container.textContent === "hi";
+  }
+);
 
 let DoNotRenderSameStateTestState: any;
 test(

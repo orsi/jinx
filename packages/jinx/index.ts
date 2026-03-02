@@ -42,12 +42,15 @@ declare global {
 
   namespace JSX {
     type Ref = {
+      children: Children[];
+      component?: ComponentRef;
+      tag: string | ComponentFunction;
+      props: Props;
       /**
        * Required for retaining references to childNodes attached and moved from
        * a DocumentFragment.
        */
       childNodes?: Node[];
-      props?: JSX.Props;
     };
 
     type Child = null | string | number | boolean | Node | Child[];
@@ -64,8 +67,9 @@ declare global {
 
     type ComponentRef = {
       props: ComponentProps;
+      renderState: string;
       hooksIndex: number;
-      hooks: unknown[];
+      hooks: any[];
       tag: ComponentFunction;
       result: Children;
       childNode?: Node;
@@ -93,58 +97,6 @@ const COMPONENT_REF: {
   current: JSX.ComponentRef | undefined;
 } = { current: undefined };
 
-/**
- * Current component rendering context. Enables hooks to have access to
- * their current component context. When this variable is set, all calls to jsx()
- * will defer attaching their children to their container -- this enables the
- * reconcile() function to reuse inserted DOM nodes when possible.
- */
-const JSX_REF: {
-  current: JSX.Ref | undefined;
-} = { current: undefined };
-
-/**
- * Generic state setter for components.
- */
-function useCurrentComponentState<T>(initialValue: T) {
-  const component = getCurrentComponent();
-
-  const index = component.hooksIndex;
-  const value = component.hooks.hasOwnProperty(index) ? component.hooks[index] : initialValue;
-
-  // advance hook index
-  component.hooksIndex++;
-
-  const update = (nextValue: T) => {
-    if (Object.is(nextValue, value)) {
-      // same value
-      return false;
-    }
-
-    const t0 = performance.now();
-
-    component.hooks[index] = nextValue;
-
-    const hooks = [...component.hooks];
-    const newComponent = createComponent(component.tag, component.props, hooks);
-    const newNode = createChild(newComponent.result);
-
-    if (!component.childNode) {
-      throw new Error("No node for component");
-    }
-    newComponent.childNode = reconcile(newNode, component.childNode);
-
-    if (window.__DEBUG__) {
-      const t1 = performance.now();
-      console.log(`${component.tag.name} rendered in ${t1 - t0} milliseconds.`);
-    }
-
-    return true;
-  };
-
-  return [value, update] as [T, (value: T) => void];
-}
-
 function createChild(child: JSX.Child) {
   let node: Node;
   if (child instanceof Node) {
@@ -158,7 +110,7 @@ function createChild(child: JSX.Child) {
     node = document.createTextNode(text);
   } else {
     node = document.createDocumentFragment();
-    node.__jinx = { childNodes: [] };
+    node.__jinx = { childNodes: [] } as unknown as JSX.Ref; // TODO: remove
     for (const subChild of child) {
       const subNode = createChild(subChild);
       node.__jinx.childNodes?.push(subNode);
@@ -168,17 +120,18 @@ function createChild(child: JSX.Child) {
   return node;
 }
 
-function createComponent(tag: JSX.ComponentFunction, props: JSX.Props, hooks: unknown[] = []) {
+function createComponent(tag: JSX.ComponentFunction, props: JSX.Props) {
   // save context
   const context = COMPONENT_REF.current;
 
   // set current component context so that calls to `use` hooks have access
   const component = {
+    renderState: "init",
     props,
     hooksIndex: 0,
-    hooks,
+    hooks: [],
     tag,
-  } as JSX.ComponentRef;
+  } as unknown as JSX.ComponentRef; // result will eventually be set
 
   COMPONENT_REF.current = component;
 
@@ -186,6 +139,35 @@ function createComponent(tag: JSX.ComponentFunction, props: JSX.Props, hooks: un
 
   // restore context
   COMPONENT_REF.current = context;
+
+  return component;
+}
+
+function rerenderComponent(component: JSX.ComponentRef) {
+  const t0 = performance.now();
+
+  // save context
+  const context = COMPONENT_REF.current;
+  COMPONENT_REF.current = component;
+
+  // reset hook index
+  component.hooksIndex = 0;
+  component.result = component.tag(component.props);
+
+  const newNode = createChild(component.result);
+
+  if (!component.childNode) {
+    throw new Error("No node for component");
+  }
+  component.childNode = reconcile(newNode, component.childNode);
+
+  // restore context
+  COMPONENT_REF.current = context;
+
+  if (window.__DEBUG__) {
+    const t1 = performance.now();
+    console.log(`${component.tag.name} rerendered in ${t1 - t0}ms.`);
+  }
 
   return component;
 }
@@ -348,6 +330,12 @@ function replace(next: Node, last: Node) {
  * as document.body.append().
  */
 export function jsx(tag: string | JSX.ComponentFunction, props: JSX.Props, ...children: JSX.Child[]): Node {
+  const ref: JSX.Ref = {
+    children,
+    tag,
+    props,
+  };
+
   props = props ?? {};
 
   let node: Node;
@@ -356,14 +344,14 @@ export function jsx(tag: string | JSX.ComponentFunction, props: JSX.Props, ...ch
     const component = createComponent(tag, props);
     component.childNode = createChild(component.result);
     node = component.childNode;
+    ref.component = component;
+    ref.childNodes = node.__jinx?.childNodes;
   } else {
     node = document.createElement(tag);
-    node.__jinx = {
-      childNodes: [],
-    };
+    ref.childNodes = [];
     for (const child of children) {
       const childNode = createChild(child);
-      node.__jinx.childNodes?.push(childNode);
+      ref.childNodes.push(childNode);
     }
   }
 
@@ -377,8 +365,34 @@ export function jsx(tag: string | JSX.ComponentFunction, props: JSX.Props, ...ch
     attach(node, node.__jinx?.childNodes);
   }
 
-  return commit(node, props);
+  node.__jinx = ref;
+  JSX_NODES_SET.add(node);
+
+  const commitedNode = commit(node, props);
+  return commitedNode;
 }
+
+// this is crazy! Why is there no api that replaces DOMNodeInserted and related events???
+const observer = new MutationObserver((mutations) => {
+  for (const node of JSX_NODES_SET) {
+    if (document.contains(node)) {
+      if (node.__jinx?.component?.renderState === "init") {
+        node.__jinx.component.hooks.forEach((hook) => {
+          if (hook.value?.effect) {
+            hook.value.effect();
+          }
+        });
+        node.__jinx.component.renderState = "rendered";
+      }
+    }
+  }
+});
+observer.observe(document.body, {
+  childList: true,
+  subtree: true,
+});
+
+const JSX_NODES_SET = new Set<Node>();
 
 /**
  * <></>
@@ -388,17 +402,62 @@ export function Fragment(props: JSX.PropsWithChildren) {
 }
 
 /**
+ * Generic hook creation.
+ */
+function useHook<T>(_hook: { type: string; initialValue: T }) {
+  const component = getCurrentComponent();
+
+  const index = component.hooksIndex;
+  let hook = component.hooks[index];
+  if (!hook) {
+    hook = component.hooks[index] = {
+      index,
+      ..._hook,
+      value: _hook.initialValue,
+      parent: component,
+    };
+  }
+
+  // advance hook index
+  component.hooksIndex++;
+
+  return hook;
+}
+
+/**
+ * Returns state value and setter.
+ */
+export function useEffect<V>(effect: Function, dependencies?: unknown[]) {
+  useHook({
+    type: "useEffect",
+    initialValue: {
+      effect,
+      dependencies,
+    },
+  });
+}
+
+/**
  * Returns state value and setter.
  */
 export function useState<V>(initialValue: V | (() => V)) {
-  const [value, update] = useCurrentComponentState(initialValue instanceof Function ? initialValue() : initialValue);
+  const hook = useHook({
+    type: "useState",
+    initialValue: initialValue instanceof Function ? initialValue() : initialValue,
+  });
 
-  const set = (_value: V | ((prev: V) => V)) => {
-    const nextValue = _value instanceof Function ? _value(value) : _value;
-    return update(nextValue);
+  const set = (value: V | ((prev: V) => V)) => {
+    const nextValue = value instanceof Function ? value(hook.value) : value;
+    if (Object.is(nextValue, hook.value)) {
+      // same value
+      return false;
+    }
+
+    hook.value = nextValue;
+    return rerenderComponent(hook.parent);
   };
 
-  return [value, set] as [V, typeof set];
+  return [hook.value, set] as [V, typeof set];
 }
 
 export type Reducer<S, A> = (state: S, action: A) => S;
@@ -407,12 +466,21 @@ export type Reducer<S, A> = (state: S, action: A) => S;
  * Returns data and dispatch function.
  */
 export function useReducer<S = any, A = any>(reducer: Reducer<S, A>, initialState: S, init?: (s: S) => S) {
-  const [state, update] = useCurrentComponentState(init != null ? init(initialState) : initialState);
+  const hook = useHook({
+    type: "useReducer",
+    initialValue: init != null ? init(initialState) : initialState,
+  });
 
   const set = (action: A) => {
-    const nextValue = reducer(state, action);
-    return update(nextValue);
+    const nextValue = reducer(hook.value, action);
+    if (Object.is(nextValue, hook.value)) {
+      // same value
+      return false;
+    }
+
+    hook.value = nextValue;
+    return rerenderComponent(hook.parent);
   };
 
-  return [state, set] as [S, typeof set];
+  return [hook.value, set] as [S, typeof set];
 }
