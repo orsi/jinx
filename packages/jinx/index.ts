@@ -37,22 +37,28 @@ declare global {
 
   // TODO: Attempt to avoid monkey patching Nodes
   interface Node {
-    __jinx?: JSX.Ref;
+    __jinx?: JinxRef;
   }
 
-  namespace JSX {
-    type Ref = {
-      children: Children[];
-      component?: ComponentRef;
-      tag: string | ComponentFunction;
-      props: Props;
-      /**
-       * Required for retaining references to childNodes attached and moved from
-       * a DocumentFragment.
-       */
-      childNodes?: Node[];
-    };
+  type JinxRef = {
+    /**
+     * Required for retaining references to childNodes attached and moved from
+     * a DocumentFragment.
+     */
+    childNodes?: Node[];
+    hooksIndex?: number;
+    hooks?: any[];
+    children?: JSX.Children[];
+    node?: Node;
+    props?: JSX.ComponentProps;
+    renderState?: string;
+    componentResult?: JSX.Children;
+    tag?: string | JSX.ComponentFunction;
+    type: "element" | "function" | "child";
+    value?: unknown;
+  };
 
+  namespace JSX {
     type Child = null | string | number | boolean | Node | Child[];
 
     type Children = Child | Child[];
@@ -64,16 +70,6 @@ declare global {
     type ComponentProps = Props & PropsWithChildren;
 
     type ComponentFunction<T = any> = (props: ComponentProps & T) => Children;
-
-    type ComponentRef = {
-      props: ComponentProps;
-      renderState: string;
-      hooksIndex: number;
-      hooks: any[];
-      tag: ComponentFunction;
-      result: Children;
-      childNode?: Node;
-    };
 
     type IntrinsicElements = {
       [key in keyof HTMLElementTagNameMap]: IntrinsicHTMLElement<key>;
@@ -94,14 +90,45 @@ declare global {
  * reconcile() function to reuse inserted DOM nodes when possible.
  */
 const COMPONENT_REF: {
-  current: JSX.ComponentRef | undefined;
+  current: JinxRef | undefined;
 } = { current: undefined };
 
+/**
+ * Set of all Jinx rendered nodes.
+ */
+const JSX_NODES_SET = new Set<Node>();
+
+// this is crazy! Why is there no api that replaces DOMNodeInserted and related events???
+const observer = new MutationObserver(() => {
+  for (const node of JSX_NODES_SET) {
+    if (document.contains(node)) {
+      if (node.__jinx?.renderState === "init") {
+        node.__jinx.hooks?.forEach((hook) => {
+          if (hook.value?.effect) {
+            hook.value.effect();
+          }
+        });
+        node.__jinx.renderState = "rendered";
+      }
+    } else {
+      JSX_NODES_SET.delete(node);
+    }
+  }
+});
+
+observer.observe(document.body, {
+  childList: true,
+  subtree: true,
+});
+
 function createChild(child: JSX.Child) {
-  let node: Node;
   if (child instanceof Node) {
-    node = child;
-  } else if (child == null || (Array.isArray(child) && child.length === 0)) {
+    return child;
+  }
+
+  let node: Node;
+  let childNodes: Node[] | undefined;
+  if (child == null) {
     node = document.createComment("");
   } else if (typeof child === "boolean") {
     node = document.createComment(`${child}`);
@@ -109,67 +136,69 @@ function createChild(child: JSX.Child) {
     const text = child.toString();
     node = document.createTextNode(text);
   } else {
-    node = document.createDocumentFragment();
-    node.__jinx = { childNodes: [] } as unknown as JSX.Ref; // TODO: remove
+    node = child.length === 0 ? document.createComment("") : document.createDocumentFragment();
+    childNodes = [];
     for (const subChild of child) {
       const subNode = createChild(subChild);
-      node.__jinx.childNodes?.push(subNode);
+      childNodes.push(subNode);
     }
   }
 
+  node.__jinx = {
+    type: "child",
+    childNodes,
+    value: child,
+  };
   return node;
 }
 
-function createComponent(tag: JSX.ComponentFunction, props: JSX.Props) {
+function createComponent(tag: JSX.ComponentFunction, props: JSX.Props, ref: JinxRef) {
   // save context
   const context = COMPONENT_REF.current;
 
   // set current component context so that calls to `use` hooks have access
-  const component = {
-    renderState: "init",
-    props,
-    hooksIndex: 0,
-    hooks: [],
-    tag,
-  } as unknown as JSX.ComponentRef; // result will eventually be set
+  COMPONENT_REF.current = ref;
 
-  COMPONENT_REF.current = component;
-
-  component.result = tag(props);
+  ref.hooksIndex = 0;
+  ref.hooks = [];
+  ref.componentResult = tag(props);
 
   // restore context
   COMPONENT_REF.current = context;
 
-  return component;
+  return ref;
 }
 
-function rerenderComponent(component: JSX.ComponentRef) {
+function rerenderComponent(ref: JinxRef) {
+  if (typeof ref.tag !== "function") {
+    throw new Error("why");
+  }
   const t0 = performance.now();
 
   // save context
   const context = COMPONENT_REF.current;
-  COMPONENT_REF.current = component;
+  COMPONENT_REF.current = ref;
 
   // reset hook index
-  component.hooksIndex = 0;
-  component.result = component.tag(component.props);
+  ref.hooksIndex = 0;
+  ref.componentResult = ref.tag(ref.props);
 
-  const newNode = createChild(component.result);
+  const newNode = createChild(ref.componentResult!);
 
-  if (!component.childNode) {
+  if (!ref.node) {
     throw new Error("No node for component");
   }
-  component.childNode = reconcile(newNode, component.childNode);
+  ref.node = reconcile(newNode, ref.node);
 
   // restore context
   COMPONENT_REF.current = context;
 
   if (window.__DEBUG__) {
     const t1 = performance.now();
-    console.log(`${component.tag.name} rerendered in ${t1 - t0}ms.`);
+    console.log(`${ref.tag.name} rerendered in ${t1 - t0}ms.`);
   }
 
-  return component;
+  return ref;
 }
 
 function hasComponentContext() {
@@ -181,7 +210,7 @@ function getCurrentComponent() {
     throw new Error("No component.");
   }
 
-  return COMPONENT_REF.current;
+  return COMPONENT_REF.current as Required<JinxRef>;
 }
 
 function commit(element: Node, next: JSX.Props, previous?: JSX.Props) {
@@ -205,7 +234,7 @@ function commit(element: Node, next: JSX.Props, previous?: JSX.Props) {
   }
 
   // apply next
-  for (const [prop, value] of Object.entries(next)) {
+  for (const [prop, value] of Object.entries(next ?? {})) {
     const isEvent = prop.startsWith("on") && prop.substring(2).toLowerCase() in element;
     if (isEvent) {
       const eventName = prop.substring(2).toLowerCase() as keyof ElementEventMap;
@@ -330,24 +359,23 @@ function replace(next: Node, last: Node) {
  * as document.body.append().
  */
 export function jsx(tag: string | JSX.ComponentFunction, props: JSX.Props, ...children: JSX.Child[]): Node {
-  const ref: JSX.Ref = {
+  const ref: JinxRef = {
     children,
-    tag,
     props,
+    renderState: "init",
+    tag,
+    type: typeof tag === "function" ? "function" : "element",
   };
-
-  props = props ?? {};
 
   let node: Node;
   if (typeof tag === "function") {
-    const component = createComponent(tag, {
-      ...props,
+    ref.props = {
+      ...ref.props,
       children,
-    });
-    component.childNode = createChild(component.result);
-    node = component.childNode;
-    ref.component = component;
-    ref.childNodes = node.__jinx?.childNodes;
+    };
+    createComponent(tag, ref.props, ref);
+    node = ref.node = createChild(ref.componentResult!);
+    ref.childNodes = ref.node.__jinx?.childNodes;
   } else {
     node = document.createElement(tag);
     ref.childNodes = [];
@@ -364,7 +392,7 @@ export function jsx(tag: string | JSX.ComponentFunction, props: JSX.Props, ...ch
    * reconcile() function.
    */
   if (!hasComponentContext()) {
-    attach(node, node.__jinx?.childNodes);
+    attach(node, ref.childNodes);
   }
 
   node.__jinx = ref;
@@ -373,30 +401,6 @@ export function jsx(tag: string | JSX.ComponentFunction, props: JSX.Props, ...ch
   const commitedNode = commit(node, props);
   return commitedNode;
 }
-
-// this is crazy! Why is there no api that replaces DOMNodeInserted and related events???
-const observer = new MutationObserver((mutations) => {
-  for (const node of JSX_NODES_SET) {
-    if (document.contains(node)) {
-      if (node.__jinx?.component?.renderState === "init") {
-        node.__jinx.component.hooks.forEach((hook) => {
-          if (hook.value?.effect) {
-            hook.value.effect();
-          }
-        });
-        node.__jinx.component.renderState = "rendered";
-      }
-    } else {
-      JSX_NODES_SET.delete(node);
-    }
-  }
-});
-observer.observe(document.body, {
-  childList: true,
-  subtree: true,
-});
-
-const JSX_NODES_SET = new Set<Node>();
 
 /**
  * <></>

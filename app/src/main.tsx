@@ -93,6 +93,62 @@ function test(
 }
 
 test(
+  "Fragment array",
+  () => {
+    return (
+      <>
+        {1}two{3}
+      </>
+    );
+  },
+  ($container) => {
+    const isChildNodeZeroText1 = $container.childNodes[0]?.textContent?.includes("1");
+    const isChildNodeZeroTextTwo = $container.childNodes[1]?.textContent?.includes("two");
+    const isChildNodeZeroText3 = $container.childNodes[2]?.textContent?.includes("3");
+    const isContainerText1two3 = $container.textContent?.includes("1two3");
+    return isChildNodeZeroText1 && isChildNodeZeroTextTwo && isChildNodeZeroText3 && isContainerText1two3;
+  }
+);
+
+let FragmentTestState: any;
+test(
+  "A lot of Fragments and moving",
+  () => {
+    const FragmentTest = ({ children }: JSX.PropsWithChildren) => {
+      FragmentTestState = useState(0);
+      const [count] = FragmentTestState;
+      return (
+        <>
+          <>one, </>
+          {count % 3 === 0 ? children : "muahaha! "}
+        </>
+      );
+    };
+
+    return (
+      <FragmentTest>
+        <>two, </>
+        <>three</>
+      </FragmentTest>
+    );
+  },
+  ($container) => {
+    const isContainerTextOneTwoThree = $container.textContent?.includes("one, two, three");
+    FragmentTestState[1](2);
+    const isContainerTextNowMuahaha = $container.textContent?.includes("muahaha! ");
+    FragmentTestState[1](3);
+    const isContainerTextMissingTwo = !$container.childNodes[2]?.textContent?.includes("two, ");
+    const isContainerTextMissingMuahaha = !$container.innerText?.includes("muahaha! ");
+    return (
+      isContainerTextOneTwoThree &&
+      isContainerTextNowMuahaha &&
+      isContainerTextMissingTwo &&
+      isContainerTextMissingMuahaha
+    );
+  }
+);
+
+test(
   "Should not have children props",
   () => {
     const UseEffectTest = () => {
@@ -225,38 +281,6 @@ test(
   }
 );
 
-let FragmentTestState: any;
-test(
-  "A lot of Fragments and moving",
-  () => {
-    const FragmentTest = ({ children }: JSX.PropsWithChildren) => {
-      FragmentTestState = useState(0);
-      const [count] = FragmentTestState;
-      return (
-        <>
-          <>one, </>
-          {count % 3 === 0 ? children : "muahaha! "}
-        </>
-      );
-    };
-
-    return (
-      <FragmentTest>
-        <>two, </>
-        <>three</>
-      </FragmentTest>
-    );
-  },
-  ($container) => {
-    FragmentTestState[1](2);
-    const test1 = $container.childNodes[1]?.textContent?.includes("muahaha! ");
-    FragmentTestState[1](3);
-    const test2 = !$container.childNodes[2]?.textContent?.includes("two, ");
-    const test3 = !$container.innerText?.includes("muahaha! ");
-    return test1 && test2 && test3;
-  }
-);
-
 let state: any;
 test(
   "State update to 2 and isolated fragment stays in dom",
@@ -379,8 +403,6 @@ test(
     );
   }
 );
-
-/// GOOD TESTS
 
 test(
   "Isolated Fragment renders",
