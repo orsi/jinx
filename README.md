@@ -1,6 +1,6 @@
 # jinx
 
-a minimalist jsx rendering library (1.669kb gzipped)
+a minimalist jsx rendering library
 
 ## setup
 
@@ -34,10 +34,10 @@ nothing really here now other than:
 - exports:
   - `useState(initialValue)`
   - `useReducer(reducer, initialState)`
+  - `useEffect(fn, deps)`
   - `jsx` and `Fragment` aka `<></>`
     - you'd most likely setup Vite or Typescript to auto-import these type definitions for working with HTML elements and function components in JSX
 - renders JSX/TSX syntax
-- testing app based off [js-framework-benchmark](https://github.com/krausest/js-framework-benchmark)
 
 ```tsx
 function MyApp() {
@@ -46,6 +46,10 @@ function MyApp() {
   const onClick = () => {
     setToggle(!toggle);
   };
+
+  useEffect(() => {
+    console.log("hi!");
+  }, []);
 
   return (
     <>

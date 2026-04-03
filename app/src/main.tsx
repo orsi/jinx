@@ -1,5 +1,5 @@
 import "./main.css";
-import { useState, useReducer, Reducer, useEffect } from "jinx";
+import { useState, useReducer, useEffect } from "jinx";
 
 const TESTS: (() => { name: string; result?: Promise<boolean>; hasResult: boolean })[] = [];
 
@@ -92,6 +92,22 @@ function test(
   };
 }
 
+/**
+ *
+ *
+ *
+ *
+ *
+ *
+ * TESTS
+ *
+ *
+ *
+ *
+ *
+ *
+ */
+
 test(
   "Fragment array",
   () => {
@@ -118,10 +134,10 @@ test(
       FragmentTestState = useState(0);
       const [count] = FragmentTestState;
       return (
-        <>
+        <div>
           <>one, </>
-          {count % 3 === 0 ? children : "muahaha! "}
-        </>
+          {count % 3 === 0 ? children : "muahaha!"}
+        </div>
       );
     };
 
@@ -134,15 +150,19 @@ test(
   },
   ($container) => {
     const isContainerTextOneTwoThree = $container.textContent?.includes("one, two, three");
+    // return isContainerTextOneTwoThree;
     FragmentTestState[1](2);
-    const isContainerTextNowMuahaha = $container.textContent?.includes("muahaha! ");
+    const isContainerTextNowMuahaha = $container.textContent?.includes("muahaha!");
+    const noTwoOrThree = !$container.textContent?.includes("two") && !$container.textContent?.includes("three");
+    // return isContainerTextOneTwoThree && isContainerTextNowMuahaha && noTwoOrThree;
     FragmentTestState[1](3);
-    const isContainerTextMissingTwo = !$container.childNodes[2]?.textContent?.includes("two, ");
-    const isContainerTextMissingMuahaha = !$container.innerText?.includes("muahaha! ");
+    const isContainerTextOneTwoThree2 = $container.textContent?.includes("one, two, three");
+    const isContainerTextMissingMuahaha = !$container.innerText?.includes("muahaha!");
     return (
       isContainerTextOneTwoThree &&
       isContainerTextNowMuahaha &&
-      isContainerTextMissingTwo &&
+      noTwoOrThree &&
+      isContainerTextOneTwoThree2 &&
       isContainerTextMissingMuahaha
     );
   }
@@ -151,11 +171,11 @@ test(
 test(
   "Should not have children props",
   () => {
-    const UseEffectTest = () => {
+    const ChildrenPropText = () => {
       return <div id="children-test">children prop</div>;
     };
 
-    return <UseEffectTest />;
+    return <ChildrenPropText />;
   },
   ($container) => {
     return !$container.querySelector("#children-test")?.hasAttribute("children");
@@ -212,7 +232,7 @@ test(
       RenderOnDifferentStateTestState = useState(1);
       return (
         <small>
-          {DoNotRenderSameStateTestState[0]} ={">"} setState(2)
+          {RenderOnDifferentStateTestState[0]} ={">"} setState(2)
         </small>
       );
     };
@@ -239,6 +259,7 @@ test(
   },
   ($container) => {
     NullStateTestState[1](null);
+    NullStateTestState[1](3);
     return $container.childNodes[0] instanceof Comment;
   }
 );
@@ -644,19 +665,20 @@ test(
       const [data] = (ChildrenShrinkingState = useState([1, 2, 3]));
       return (
         <>
-          <div id="start">start</div>
-          {data.map((i) => (
-            <span id={`item-${i}`}>a. {i}, </span>
-          ))}
-          <div id="end">end</div>
+          start
+          {data.map((i) => i)}
+          end
         </>
       );
     };
     return <ChildrenShrinking />;
   },
   ($container) => {
+    const start123end = $container.textContent === "start123end";
+    // return start123end;
     ChildrenShrinkingState[1]([]);
-    return $container.childNodes[2]?.textContent?.includes("end");
+    const startEnd = $container.textContent === "startend";
+    return start123end && startEnd;
   }
 );
 
@@ -668,23 +690,20 @@ test(
       const [data] = (ChildrenGrowingState = useState([]));
       return (
         <>
-          <div id="start">start</div>
-          {data.map((i) => (
-            <span id={`item-${i}`}>a. {i}, </span>
-          ))}
-          <div id="end">end</div>
+          start
+          {data.map((i) => i)}
+          end
         </>
       );
     };
     return <ChildrenGrowing />;
   },
   ($container) => {
+    const startEnd = $container.textContent === "startend";
+    // return startEnd;
     ChildrenGrowingState[1]([1, 2, 3]);
-    return (
-      $container.firstChild?.textContent?.includes("start") &&
-      $container.lastChild?.textContent?.includes("end") &&
-      $container.childNodes[2]?.textContent?.includes("2")
-    );
+    const start123end = $container.textContent === "start123end";
+    return startEnd && start123end;
   }
 );
 
@@ -824,7 +843,7 @@ test(
     return <RemoveRowReducerTest />;
   },
   ($container) => {
-    RemoveRowReducer[1]({ type: "CLEAR", id: 2 });
+    RemoveRowReducer[1]({ type: "CLEAR" });
     return (
       $container.querySelector("#item-1") == null &&
       $container.querySelector("#item-2") == null &&
