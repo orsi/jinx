@@ -106,7 +106,7 @@ function test(
  *
  *
  *
- */
+//  */
 
 test(
   "Fragment array",
@@ -179,91 +179,6 @@ test(
   },
   ($container) => {
     return !$container.querySelector("#children-test")?.hasAttribute("children");
-  }
-);
-
-test(
-  "Use effect runs after render into DOM",
-  () => {
-    const UseEffectTest = () => {
-      useEffect(() => {
-        const el = document.querySelector<HTMLDivElement>("#use-effect-test");
-        if (el) {
-          el.textContent = "hi";
-        }
-      }, []);
-      return <div id="use-effect-test">yo</div>;
-    };
-
-    return <UseEffectTest />;
-  },
-  ($container) => {
-    return $container.textContent === "hi";
-  }
-);
-
-let cleanupCount = 0;
-let UseEffectCleanupTestState: any;
-test(
-  "Use effect cleanup runs before render",
-  () => {
-    const UseEffectCleanupTest = () => {
-      UseEffectCleanupTestState = useState(0);
-      useEffect(() => {
-        return () => {
-          cleanupCount++;
-        };
-      }, [UseEffectCleanupTestState[0]]);
-      return (
-        <div id="use-effect-cleanup-test">
-          previous cleanupCount: {cleanupCount}
-          <br />
-          state: {UseEffectCleanupTestState[0]}
-        </div>
-      );
-    };
-
-    return <UseEffectCleanupTest />;
-  },
-  () => {
-    UseEffectCleanupTestState[1](1);
-    UseEffectCleanupTestState[1](2);
-    UseEffectCleanupTestState[1](3);
-    return UseEffectCleanupTestState[0] === 3 && cleanupCount === 3;
-  }
-);
-
-let effectRan = false;
-let effectCleanupUnmount = false;
-let UseEffectCleanupUnmountTestState: any;
-test(
-  "Use effect cleanup runs on unmount",
-  () => {
-    const First = () => {
-      useEffect(() => {
-        effectRan = true;
-        return () => {
-          effectCleanupUnmount = true;
-        };
-      }, []);
-      return <div id="first">first</div>;
-    };
-    const UseEffectCleanupUnmountTest = () => {
-      const [toggle, setToggle] = (UseEffectCleanupUnmountTestState = useState(false));
-
-      return (
-        <div id="use-effect-cleanup-unmount-test">
-          {!toggle && <First />}
-          {toggle && <div id="second">second</div>}
-        </div>
-      );
-    };
-
-    return <UseEffectCleanupUnmountTest />;
-  },
-  () => {
-    UseEffectCleanupUnmountTestState[1](true);
-    return effectRan && effectCleanupUnmount;
   }
 );
 
@@ -370,7 +285,7 @@ let state: any;
 test(
   "State update to 2 and isolated fragment stays in dom",
   () => {
-    const Test = ({ children }: JSX.PropsWithChildren) => {
+    function Test({ children }: JSX.PropsWithChildren) {
       state = useState(0);
       const [count, setCount] = state;
 
@@ -387,7 +302,7 @@ test(
           {children}
         </>
       );
-    };
+    }
 
     return (
       <Test>
@@ -398,36 +313,6 @@ test(
   ($container) => {
     state[1](2);
     return $container.innerHTML.includes("Push me 2") && $container.innerHTML.includes("hi");
-  }
-);
-
-let MyComponentState: any;
-test(
-  "Counter",
-  () => {
-    const Counter = ({ count }: { count: number }) => {
-      return (
-        <div id="count">
-          count: {count}
-          {count % 2 === 0 ? <small id="even"> EVEN!</small> : <small id="odd"> ODD!</small>}
-        </div>
-      );
-    };
-
-    const MyComponent = () => {
-      MyComponentState = useState(0);
-      const [count] = MyComponentState;
-      return <Counter count={count} />;
-    };
-
-    return <MyComponent />;
-  },
-  ($container) => {
-    MyComponentState[1](10);
-    const $countContainer = $container.querySelector("#count") as HTMLElement;
-    return (
-      $countContainer != null && $countContainer.innerText.includes("10") && $countContainer.innerText.includes("EVEN!")
-    );
   }
 );
 
@@ -764,7 +649,36 @@ test(
   }
 );
 
-let CreateRowReducer: any;
+let PropsTestState: any;
+test(
+  "Props are propogated downwards",
+  () => {
+    const Counter = ({ count }: { count: number }) => {
+      return (
+        <div id="counter">
+          {count} is{` `}
+          {count % 2 === 0 ? <small id="even">EVEN!</small> : <small id="odd">ODD!</small>}
+        </div>
+      );
+    };
+
+    const PropsTest = () => {
+      PropsTestState = useState(0);
+      const [count] = PropsTestState;
+      return <Counter count={count} />;
+    };
+
+    return <PropsTest />;
+  },
+  ($container) => {
+    PropsTestState[1](10);
+    const $countContainer = $container.querySelector("#counter") as HTMLElement;
+    return (
+      $countContainer != null && $countContainer.innerText.includes("10") && $countContainer.innerText.includes("EVEN!")
+    );
+  }
+);
+
 let runCount = 0;
 test(
   "CreateRowReducerTest",
@@ -823,7 +737,7 @@ test(
     );
 
     const CreateRowReducerTest = () => {
-      const [{ data, selected }, dispatch] = (CreateRowReducer = useReducer(listReducer, initialState));
+      const [{ data, selected }, dispatch] = useReducer(listReducer, initialState);
 
       return (
         <div id="container">
@@ -1089,6 +1003,91 @@ test(
     JSRuntimeReducer[1]({ type: "RUN" });
     JSRuntimeReducer[1]({ type: "CLEAR" });
     return $container.querySelector("#header") != null;
+  }
+);
+
+test(
+  "Use effect runs after render into DOM",
+  () => {
+    const UseEffectTest = () => {
+      useEffect(() => {
+        const el = document.querySelector<HTMLDivElement>("#use-effect-test");
+        if (el) {
+          el.textContent = "hi";
+        }
+      }, []);
+      return <div id="use-effect-test">yo</div>;
+    };
+
+    return <UseEffectTest />;
+  },
+  ($container) => {
+    return $container.textContent === "hi";
+  }
+);
+
+let cleanupCount = 0;
+let UseEffectCleanupTestState: any;
+test(
+  "Use effect cleanup runs before render",
+  () => {
+    const UseEffectCleanupTest = () => {
+      UseEffectCleanupTestState = useState(0);
+      useEffect(() => {
+        return () => {
+          cleanupCount++;
+        };
+      }, [UseEffectCleanupTestState[0]]);
+      return (
+        <div id="use-effect-cleanup-test">
+          previous cleanupCount: {cleanupCount}
+          <br />
+          state: {UseEffectCleanupTestState[0]}
+        </div>
+      );
+    };
+
+    return <UseEffectCleanupTest />;
+  },
+  () => {
+    UseEffectCleanupTestState[1](1);
+    UseEffectCleanupTestState[1](2);
+    UseEffectCleanupTestState[1](3);
+    return UseEffectCleanupTestState[0] === 3 && cleanupCount === 3;
+  }
+);
+
+let effectRan = false;
+let effectCleanupUnmount = false;
+let UseEffectCleanupUnmountTestState: any;
+test(
+  "Use effect cleanup runs on unmount",
+  () => {
+    const First = () => {
+      useEffect(() => {
+        effectRan = true;
+        return () => {
+          effectCleanupUnmount = true;
+        };
+      }, []);
+      return <div id="first">first</div>;
+    };
+    const UseEffectCleanupUnmountTest = () => {
+      const [toggle, setToggle] = (UseEffectCleanupUnmountTestState = useState(false));
+
+      return (
+        <div id="use-effect-cleanup-unmount-test">
+          {!toggle && <First />}
+          {toggle && <div id="second">second</div>}
+        </div>
+      );
+    };
+
+    return <UseEffectCleanupUnmountTest />;
+  },
+  () => {
+    UseEffectCleanupUnmountTestState[1](true);
+    return effectRan && effectCleanupUnmount;
   }
 );
 

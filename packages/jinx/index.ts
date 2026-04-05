@@ -54,36 +54,21 @@ declare global {
 
   // TODO: Attempt to avoid monkey patching Nodes
   interface Node {
+    __props?: JSX.Props;
     __jinx?: JinxRef;
-    __jinxParent?: JinxRef;
   }
 
-  type JinxComponentRef = {
-    type: "component";
-    childNodes: Node[];
+  type JinxRef = {
     children?: JSX.Child;
-    dom: Node | Node[];
+    root?: Node | Node[];
     hooksIndex: number;
     hooks: JinxHook[];
-    parentNode?: Node;
     props: JSX.ComponentProps;
     tag: JSX.ComponentFunction;
   };
 
-  type JinxElementRef = {
-    type: "element";
-    childNodes: Node[];
-    children?: JSX.Child;
-    node: Node;
-    parentNode?: Node;
-    props: JSX.ComponentProps;
-    tag: string;
-  };
-
-  type JinxRef = JinxComponentRef | JinxElementRef;
-
   type JinxHook<T = any> = {
-    component: JinxComponentRef;
+    component: JinxRef;
     index: number;
     initialValue: T;
     previousValue?: T;
@@ -136,34 +121,25 @@ declare global {
  * their current component context.
  */
 const COMPONENT_REF: {
-  current: JinxComponentRef | undefined;
+  current: JinxRef | undefined;
 } = { current: undefined };
 
 /**  Set of all Jinx rendered nodes. */
-const JSX_NODES_SET = new Set<Node>();
+const JINX_OBSERVABLES = new Set<JinxRef>();
 
 /**
- * MutationObserver is only used on initial rendering into the dom. Past that point,
+ * A MutationObserver is only needed on the initial rendering into the DOM. Past that point,
  * we can rely on rerenderComponent to know when to run component life cycles.
  */
 new MutationObserver(() => {
-  for (const node of JSX_NODES_SET) {
-    const parent = node.__jinxParent;
-    if (!parent || parent.type !== "component") {
-      // this component does not determine any component mount lifecycle hooks
-      JSX_NODES_SET.delete(node);
-      continue;
-    }
-
-    const isComponentInserted =
-      parent.dom === node || (Array.isArray(parent.dom) && parent.dom.every((node) => document.contains(node)));
-
+  for (const jinx of JINX_OBSERVABLES) {
+    const isComponentInserted = !Array.isArray(jinx.root) || jinx.root.every((node) => document.contains(node));
     if (!isComponentInserted) {
       continue;
     }
 
-    onRendered(parent as JinxComponentRef);
-    JSX_NODES_SET.delete(node);
+    onRendered(jinx);
+    JINX_OBSERVABLES.delete(jinx);
   }
 }).observe(document.body, {
   childList: true,
@@ -193,54 +169,53 @@ new MutationObserver(() => {
  */
 export function jsx(tag: string | JSX.ComponentFunction, props: JSX.Props, ...children: JSX.Child[]): Node {
   if (typeof tag === "string") {
-    const jinx = renderElement(tag, props, children);
-
-    const childNodes = renderChild(jinx.children);
-    for (const childNode of Array.isArray(childNodes) ? childNodes : [childNodes]) {
-      jinx.node.appendChild(childNode);
-      jinx.childNodes.push(childNode);
-      JSX_NODES_SET.add(childNode);
-    }
-
-    JSX_NODES_SET.add(jinx.node);
-    return jinx.node;
+    const node = document.createElement(tag);
+    const childNodes = renderChild(children);
+    append(childNodes, node);
+    return commit(node, props);
   } else {
     const jinx = renderComponent(tag, { ...props, children });
-    jinx.dom = renderChild(jinx.children);
+    jinx.root = renderChild(jinx.children);
 
-    if (jinx.dom instanceof Node) {
-      jinx.dom.__jinxParent = jinx;
-      return jinx.dom;
-    } else {
+    let node = jinx.root;
+    if (Array.isArray(node)) {
       const fragment = document.createDocumentFragment();
+      for (const childNode of node) {
+        if (!childNode.__jinx) {
+          childNode.__jinx = jinx;
+          JINX_OBSERVABLES.add(jinx);
+        }
 
-      for (const childNode of jinx.dom) {
-        childNode.__jinxParent = jinx;
         fragment.appendChild(childNode);
-        jinx.childNodes.push(childNode);
-        JSX_NODES_SET.add(childNode);
       }
 
       fragment.__jinx = jinx;
-      return fragment;
+      node = fragment;
+    } else if (!node.__jinx) {
+      node.__jinx = jinx;
+      JINX_OBSERVABLES.add(jinx);
     }
+
+    return node;
   }
 }
 
+/** JSX fragment. <></> */
+export function Fragment(props: JSX.PropsWithChildren) {
+  return props.children;
+}
+
 /** Renders a Jinx component. */
-function renderComponent(tag: JSX.ComponentFunction, props: JSX.PropsWithChildren, hooks?: any[]) {
+function renderComponent(tag: JSX.ComponentFunction, props: JSX.PropsWithChildren, hooks: JinxHook[] = []) {
   // save context
   const context = COMPONENT_REF.current;
 
-  const jinx = {
-    type: "component",
-    childNodes: [],
-    dom: [],
+  const jinx: JinxRef = {
     hooksIndex: 0,
-    hooks: hooks ?? [],
+    hooks,
     props,
     tag,
-  } as JinxComponentRef;
+  };
 
   // set current component context so that calls to `use` hooks have access
   COMPONENT_REF.current = jinx;
@@ -253,25 +228,7 @@ function renderComponent(tag: JSX.ComponentFunction, props: JSX.PropsWithChildre
   return jinx;
 }
 
-/** Renders a Jinx element. */
-function renderElement(tag: string, props: JSX.Props, children?: JSX.Child[]) {
-  const jinx = {
-    type: "element",
-    childNodes: [],
-    children,
-    node: document.createElement(tag),
-    props,
-    tag,
-  } as JinxElementRef;
-
-  commit(jinx.node, jinx.props);
-
-  jinx.node.__jinx = jinx;
-
-  return jinx;
-}
-
-/** Renders a Jinx child. */
+/** Renders Jinx children. */
 function renderChild(child: JSX.Child) {
   if (Array.isArray(child) && child.length > 0) {
     const childNodes: Node[] = [];
@@ -285,33 +242,23 @@ function renderChild(child: JSX.Child) {
     }
     return childNodes;
   } else if (child instanceof DocumentFragment) {
-    if (child.__jinx) {
-      return renderChild(child.__jinx.children);
-    } else {
-      return [...child.childNodes] as Node[];
-    }
+    return renderChild(child.__jinx?.children);
   } else if (child instanceof Node) {
     return child;
-  } else if (typeof child === "boolean") {
-    const booleanNode = document.createComment(`${child}`);
-    return booleanNode;
   } else if (typeof child === "string" || typeof child === "number") {
     const text = child.toString();
-    const textNode = document.createTextNode(text);
-    return textNode;
+    return document.createTextNode(text);
   } else {
-    const commentNode = document.createComment("");
-    return commentNode;
+    return document.createComment("");
   }
 }
 
-/** JSX fragment. <></> */
-export function Fragment(props: JSX.PropsWithChildren) {
-  return props.children;
-}
-
 /** Runs effect hooks when component rendered. */
-function onRendered(jinx: JinxComponentRef) {
+function onRendered(jinx?: JinxRef) {
+  if (!jinx) {
+    return;
+  }
+
   const effects = jinx.hooks?.filter((hook) => hook.type === "effect");
   for (const hook of effects ?? []) {
     const { dependencies, effect, hasRunOnce, previousDependencies, result } = hook.value;
@@ -329,7 +276,7 @@ function onRendered(jinx: JinxComponentRef) {
   }
 }
 
-function onRemoved(jinx: JinxComponentRef) {
+function onRemoved(jinx: JinxRef) {
   const effects = jinx.hooks?.filter((hook) => hook.type === "effect");
   for (const hook of effects ?? []) {
     hook.value?.result?.();
@@ -435,33 +382,38 @@ export function useReducer<S = any, A = any>(reducer: Reducer<S, A>, initialStat
 // RRRRRRRR     RRRRRRREEEEEEEEEEEEEEEEEEEEEENNNNNNNN         NNNNNNNDDDDDDDDDDDDD      EEEEEEEEEEEEEEEEEEEEEERRRRRRRR     RRRRRRR
 
 /** Rerenders a Jinx component. */
-function rerenderComponent(previous: JinxComponentRef) {
+function rerenderComponent(previous: JinxRef) {
+  if (!previous.root) {
+    throw new Error("No previous component root to render.");
+  }
+
   const t0 = performance.now();
 
   // save context
   const context = COMPONENT_REF.current;
 
-  const next = {
-    type: "component",
-    childNodes: [],
-    dom: [],
+  const next: JinxRef = {
+    root: [],
     hooksIndex: 0,
     hooks: previous.hooks ?? [],
     props: previous.props,
     tag: previous.tag,
-  } as JinxComponentRef;
+  };
 
   // set current component context so that calls to `use` hooks have access
   COMPONENT_REF.current = next;
 
   next.children = next.tag(next.props);
-  const dom = renderChild(next.children);
-  const domPrevious = previous.dom;
-  next.dom = reconcile(dom, domPrevious);
-  if (Array.isArray(next.dom)) {
-    next.childNodes.push(...next.dom);
-  } else {
-    next.dom.__jinxParent = next;
+  const root = renderChild(next.children);
+  next.root = reconcile(root, previous.root);
+  if (Array.isArray(next.root)) {
+    for (const childNode of next.root) {
+      if (!childNode.__jinx) {
+        childNode.__jinx = next;
+      }
+    }
+  } else if (!next.root.__jinx) {
+    next.root.__jinx = next;
   }
   onRendered(next);
 
@@ -516,13 +468,13 @@ function reconcile(next: Node | Node[], previous: Node | Node[]) {
     previous.textContent = next.textContent;
     return previous;
   } else if (previous instanceof Node && next instanceof Node && previous.nodeName === next.nodeName) {
-    const nextChildren = next.__jinx?.childNodes ?? [];
-    const previousChildNodes = previous.__jinx?.childNodes ?? [];
-    const length = Math.max(nextChildren.length, previousChildNodes.length);
+    const nextChildNodes = [...next.childNodes];
+    const previousChildNodes = [...previous.childNodes];
+    const length = Math.max(nextChildNodes.length, previousChildNodes.length);
 
     const reconciledChildNodes: Node[] = [];
     for (let i = 0; i < length; i++) {
-      const nextChildNode = nextChildren[i];
+      const nextChildNode = nextChildNodes[i];
       const previousChildNode = previousChildNodes[i];
       if (nextChildNode && previousChildNode) {
         const reconciledNode = reconcile(nextChildNode, previousChildNode);
@@ -544,12 +496,9 @@ function reconcile(next: Node | Node[], previous: Node | Node[]) {
       }
     }
 
-    const committed = commit(previous, next.__jinx?.props ?? {}, previous.__jinx?.props);
-    previous.__jinx = next.__jinx;
-    if (next.__jinx) {
-      next.__jinx.childNodes = reconciledChildNodes;
-      onRendered(next.__jinx as JinxComponentRef);
-    }
+    const committed = commit(previous, next.__props);
+    onRendered(next.__jinx);
+
     return committed;
   } else {
     const nodes = renderChild(next);
@@ -575,14 +524,14 @@ function reconcile(next: Node | Node[], previous: Node | Node[]) {
 //     UU:::::::::UU          T:::::::::T      I::::::::IL::::::::::::::::::::::LS:::::::::::::::SS
 //       UUUUUUUUU            TTTTTTTTTTT      IIIIIIIIIILLLLLLLLLLLLLLLLLLLLLLLL SSSSSSSSSSSSSSS
 
-/** Applies next props on element. Removes previous props if given. */
-function commit(element: Node, next?: JSX.Props, previous?: JSX.Props) {
+/** Removes and applied props on an element. */
+function commit(element: Node, next?: JSX.Props) {
   if (!(element instanceof HTMLElement)) {
     return element;
   }
 
   // remove previous
-  for (const [prop, value] of Object.entries(previous ?? {})) {
+  for (const [prop, value] of Object.entries(element.__props ?? {})) {
     const isEvent = prop.startsWith("on") && prop.substring(2).toLowerCase() in element;
     if (isEvent) {
       const eventName = prop.substring(2).toLowerCase() as keyof ElementEventMap;
@@ -614,9 +563,7 @@ function commit(element: Node, next?: JSX.Props, previous?: JSX.Props) {
   }
 
   // transfer next props
-  if (element.__jinx) {
-    element.__jinx.props = next ?? {};
-  }
+  element.__props = next ?? {};
 
   return element;
 }
@@ -635,11 +582,7 @@ function replace(nodeOrNodes: Node | Node[], withNodes: Node | Node[]) {
   // run any unmount effects
   for (const previousNode of nodesToRemove) {
     if (previousNode.__jinx) {
-      onRemoved(previousNode.__jinx as JinxComponentRef);
-    }
-
-    if (previousNode.__jinxParent) {
-      onRemoved(previousNode.__jinxParent as JinxComponentRef);
+      onRemoved(previousNode.__jinx);
     }
   }
 
@@ -673,7 +616,6 @@ function append(child: Node | Node[], parent?: Node | null) {
   }
 
   if (Array.isArray(child)) {
-    // TODO: this branch is never used?
     for (const _child of child) {
       append(_child, parent);
     }
