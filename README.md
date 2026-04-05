@@ -48,7 +48,10 @@ function MyApp() {
   };
 
   useEffect(() => {
-    console.log("hi!");
+    console.log("run!");
+    return () => {
+      console.log("cleanup!");
+    };
   }, []);
 
   return (

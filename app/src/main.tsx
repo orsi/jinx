@@ -188,7 +188,6 @@ test(
     const UseEffectTest = () => {
       useEffect(() => {
         const el = document.querySelector<HTMLDivElement>("#use-effect-test");
-        console.log("useEffect!", el);
         if (el) {
           el.textContent = "hi";
         }
@@ -315,7 +314,6 @@ test(
           <button
             onClick={() => {
               const nextCount = count + 1;
-              console.log("nextCount", nextCount);
               setCount(nextCount);
             }}
           >
@@ -531,7 +529,6 @@ test(
     };
   },
   ($container) => {
-    console.log($container.innerText);
     return $container.innerText === "";
   }
 );
@@ -565,13 +562,8 @@ test(
   "ReplaceSameElement",
   () => {
     const ReplaceSameElement = () => {
-      const [toggle, setToggle] = (ReplaceSameElementState = useState(true));
-
-      return toggle ? (
-        <button onClick={() => console.log("hi")}>hi</button>
-      ) : (
-        <button onClick={() => console.log("bye")}>bye</button>
-      );
+      const [toggle] = (ReplaceSameElementState = useState(true));
+      return toggle ? <div>hi</div> : <div>bye</div>;
     };
     return <ReplaceSameElement />;
   },
@@ -588,7 +580,7 @@ test(
     const ReplaceElementWithArray = () => {
       const [toggle] = (ReplaceElementWithArrayState = useState(true));
 
-      return toggle ? <button onClick={() => console.log("hi")}>hi</button> : ["good", "bye"];
+      return toggle ? <div>hi</div> : ["good", "bye"];
     };
     return <ReplaceElementWithArray />;
   },
@@ -605,7 +597,7 @@ test(
     const ReplaceArrayWithElement = () => {
       const [toggle] = (ReplaceArrayWithElementState = useState(true));
 
-      return toggle ? ["good", "bye"] : <button onClick={() => console.log("hi")}>hi</button>;
+      return toggle ? ["good", "bye"] : <div>hi</div>;
     };
     return <ReplaceArrayWithElement />;
   },
