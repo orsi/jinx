@@ -192,13 +192,78 @@ test(
           el.textContent = "hi";
         }
       }, []);
-      return <div id="use-effect-test"></div>;
+      return <div id="use-effect-test">yo</div>;
     };
 
     return <UseEffectTest />;
   },
   ($container) => {
     return $container.textContent === "hi";
+  }
+);
+
+let cleanupCount = 0;
+let UseEffectCleanupTestState: any;
+test(
+  "Use effect cleanup runs before render",
+  () => {
+    const UseEffectCleanupTest = () => {
+      UseEffectCleanupTestState = useState(0);
+      useEffect(() => {
+        return () => {
+          cleanupCount++;
+        };
+      }, [UseEffectCleanupTestState[0]]);
+      return (
+        <div id="use-effect-cleanup-test">
+          previous cleanupCount: {cleanupCount}
+          <br />
+          state: {UseEffectCleanupTestState[0]}
+        </div>
+      );
+    };
+
+    return <UseEffectCleanupTest />;
+  },
+  () => {
+    UseEffectCleanupTestState[1](1);
+    UseEffectCleanupTestState[1](2);
+    UseEffectCleanupTestState[1](3);
+    return UseEffectCleanupTestState[0] === 3 && cleanupCount === 3;
+  }
+);
+
+let effectRan = false;
+let effectCleanupUnmount = false;
+let UseEffectCleanupUnmountTestState: any;
+test(
+  "Use effect cleanup runs on unmount",
+  () => {
+    const First = () => {
+      useEffect(() => {
+        effectRan = true;
+        return () => {
+          effectCleanupUnmount = true;
+        };
+      }, []);
+      return <div id="first">first</div>;
+    };
+    const UseEffectCleanupUnmountTest = () => {
+      const [toggle, setToggle] = (UseEffectCleanupUnmountTestState = useState(false));
+
+      return (
+        <div id="use-effect-cleanup-unmount-test">
+          {!toggle && <First />}
+          {toggle && <div id="second">second</div>}
+        </div>
+      );
+    };
+
+    return <UseEffectCleanupUnmountTest />;
+  },
+  () => {
+    UseEffectCleanupUnmountTestState[1](true);
+    return effectRan && effectCleanupUnmount;
   }
 );
 

@@ -64,7 +64,7 @@ declare global {
     children?: JSX.Child;
     dom: Node | Node[];
     hooksIndex: number;
-    hooks: any[];
+    hooks: JinxHook[];
     parentNode?: Node;
     props: JSX.ComponentProps;
     tag: JSX.ComponentFunction;
@@ -81,6 +81,15 @@ declare global {
   };
 
   type JinxRef = JinxComponentRef | JinxElementRef;
+
+  type JinxHook<T = any> = {
+    component: JinxComponentRef;
+    index: number;
+    initialValue: T;
+    previousValue?: T;
+    type: "effect" | "state";
+    value?: T;
+  };
 
   namespace JSX {
     type Child = null | undefined | string | number | boolean | Node | Child[];
@@ -153,7 +162,7 @@ new MutationObserver(() => {
       continue;
     }
 
-    onMount(parent as JinxComponentRef);
+    onRendered(parent as JinxComponentRef);
     JSX_NODES_SET.delete(node);
   }
 }).observe(document.body, {
@@ -301,15 +310,34 @@ export function Fragment(props: JSX.PropsWithChildren) {
   return props.children;
 }
 
-/** Runs mount lifecycle hooks. */
-function onMount(jinx: JinxComponentRef) {
-  for (const hook of jinx.hooks ?? []) {
-    hook.value?.effect?.();
+/** Runs effect hooks when component rendered. */
+function onRendered(jinx: JinxComponentRef) {
+  const effects = jinx.hooks?.filter((hook) => hook.type === "effect");
+  for (const hook of effects ?? []) {
+    const { dependencies, effect, hasRunOnce, previousDependencies, result } = hook.value;
+    const shouldRun =
+      !hasRunOnce ||
+      dependencies == null ||
+      dependencies.some((value: any, i: number) => {
+        return !Object.is(value, previousDependencies?.[i]);
+      });
+    if (shouldRun) {
+      result?.();
+      hook.value.result = effect?.();
+      hook.value.hasRunOnce = true;
+    }
+  }
+}
+
+function onRemoved(jinx: JinxComponentRef) {
+  const effects = jinx.hooks?.filter((hook) => hook.type === "effect");
+  for (const hook of effects ?? []) {
+    hook.value?.result?.();
   }
 }
 
 /** Generic hook creation. */
-function useHook<T>(_hook: { type: string; initialValue: T }) {
+function useHook<T>(type: JinxHook["type"], value: T) {
   const component = COMPONENT_REF.current;
   if (!component) {
     throw new Error("No component.");
@@ -319,10 +347,11 @@ function useHook<T>(_hook: { type: string; initialValue: T }) {
   let hook = component.hooks[index];
   if (!hook) {
     hook = component.hooks[index] = {
+      component,
       index,
-      ..._hook,
-      value: _hook.initialValue,
-      parent: component,
+      initialValue: value,
+      type,
+      value,
     };
   }
 
@@ -332,23 +361,24 @@ function useHook<T>(_hook: { type: string; initialValue: T }) {
   return hook;
 }
 
+export type EffectFunction = () => void | (() => void);
+
 /** Runs each render. */
-export function useEffect<V>(effect: Function, dependencies?: unknown[]) {
-  useHook({
-    type: "useEffect",
-    initialValue: {
-      effect,
-      dependencies,
-    },
+export function useEffect(effect: EffectFunction, dependencies?: unknown[]) {
+  const hook = useHook("effect", {
+    effect,
   });
+  hook.value = {
+    ...hook.value,
+    effect,
+    dependencies,
+    previousDependencies: hook.value.dependencies,
+  };
 }
 
 /** Returns state value and setter. */
 export function useState<V>(initialValue: V | (() => V)) {
-  const hook = useHook({
-    type: "useState",
-    initialValue: initialValue instanceof Function ? initialValue() : initialValue,
-  });
+  const hook = useHook("state", initialValue instanceof Function ? initialValue() : initialValue);
 
   const set = (value: V | ((prev: V) => V)) => {
     const nextValue = value instanceof Function ? value(hook.value) : value;
@@ -358,7 +388,7 @@ export function useState<V>(initialValue: V | (() => V)) {
     }
 
     hook.value = nextValue;
-    rerenderComponent(hook.parent);
+    rerenderComponent(hook.component);
     return true;
   };
 
@@ -370,10 +400,7 @@ export type Reducer<S, A> = (state: S, action: A) => S;
 
 /** Returns data and dispatch function. */
 export function useReducer<S = any, A = any>(reducer: Reducer<S, A>, initialState: S, init?: (s: S) => S) {
-  const hook = useHook({
-    type: "useReducer",
-    initialValue: init != null ? init(initialState) : initialState,
-  });
+  const hook = useHook("state", init != null ? init(initialState) : initialState);
 
   const set = (action: A) => {
     const nextValue = reducer(hook.value, action);
@@ -383,7 +410,7 @@ export function useReducer<S = any, A = any>(reducer: Reducer<S, A>, initialStat
     }
 
     hook.value = nextValue;
-    rerenderComponent(hook.parent);
+    rerenderComponent(hook.component);
     return true;
   };
 
@@ -436,6 +463,7 @@ function rerenderComponent(previous: JinxComponentRef) {
   } else {
     next.dom.__jinxParent = next;
   }
+  onRendered(next);
 
   // restore context
   COMPONENT_REF.current = context;
@@ -517,10 +545,11 @@ function reconcile(next: Node | Node[], previous: Node | Node[]) {
     }
 
     const committed = commit(previous, next.__jinx?.props ?? {}, previous.__jinx?.props);
+    previous.__jinx = next.__jinx;
     if (next.__jinx) {
       next.__jinx.childNodes = reconciledChildNodes;
+      onRendered(next.__jinx as JinxComponentRef);
     }
-    previous.__jinx = next.__jinx;
     return committed;
   } else {
     const nodes = renderChild(next);
@@ -601,8 +630,20 @@ function replace(nodeOrNodes: Node | Node[], withNodes: Node | Node[]) {
     throw new Error("No parent.");
   }
 
-  const nodes = Array.isArray(nodeOrNodes) ? nodeOrNodes : [nodeOrNodes];
-  const firstNode = nodes.shift();
+  const nodesToRemove = Array.isArray(nodeOrNodes) ? nodeOrNodes : [nodeOrNodes];
+
+  // run any unmount effects
+  for (const previousNode of nodesToRemove) {
+    if (previousNode.__jinx) {
+      onRemoved(previousNode.__jinx as JinxComponentRef);
+    }
+
+    if (previousNode.__jinxParent) {
+      onRemoved(previousNode.__jinxParent as JinxComponentRef);
+    }
+  }
+
+  const firstNode = nodesToRemove.shift();
   if (firstNode == null) {
     // nothing to do
     return;
@@ -618,10 +659,10 @@ function replace(nodeOrNodes: Node | Node[], withNodes: Node | Node[]) {
     parent.replaceChild(withNodes, firstNode);
   }
 
-  let orphan = nodes.shift();
+  let orphan = nodesToRemove.shift();
   while (orphan) {
     parent.removeChild(orphan);
-    orphan = nodes.shift();
+    orphan = nodesToRemove.shift();
   }
 }
 
