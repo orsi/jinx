@@ -21,12 +21,13 @@
     "jsx": "preserve",
     "paths": {
       "jinx": [
-        "./packages/jinx"
+        "./packages/core"
       ]
     }
   },
   "include": [
-    "app",
-    "packages"
+    "packages",
+    "tests",
+    "vite.config.ts"
   ]
 }

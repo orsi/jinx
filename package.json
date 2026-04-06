@@ -2,10 +2,20 @@
   "private": true,
   "version": "0.0.0",
   "workspaces": [
-    "app",
     "packages"
   ],
   "scripts": {
-    "dev": "npm run dev -w=jinx--app"
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.13",
+    "@vitest/browser-playwright": "^4.1.2",
+    "jinx": "*",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.1",
+    "vitest": "^4.1.2"
   }
 }
