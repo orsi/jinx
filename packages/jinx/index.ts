@@ -93,7 +93,7 @@ declare global {
       [key: string]: any;
     };
 
-    type Element = string | HTMLElement | DocumentFragment;
+    type Element = Node;
 
     type ElementType = keyof IntrinsicElements | ComponentFunction;
   }
