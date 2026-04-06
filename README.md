@@ -72,5 +72,5 @@ function MyApp() {
 git clone https://github.com/orsi/jinx.git
 cd jinx
 npm i
-npm run dev
+npm run test
 ```
