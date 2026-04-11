@@ -294,6 +294,9 @@ function useHook<T>(type: JinxHook["type"], value: T) {
       type,
       value,
     };
+  } else {
+    // update ref
+    hook.component = component;
   }
 
   // advance hook index
@@ -417,30 +420,30 @@ function reconcile(next: Node | Node[], previous: Node | Node[]) {
     }
 
     const length = Math.max(next.length, previous.length);
-    const nodes: Node[] = [];
+    const reconciled: Node[] = [];
     for (let i = 0; i < length; i++) {
       const nextNode = next[i];
       const previousNode = previous[i];
       if (nextNode && previousNode) {
         const reconciledNode = reconcile(nextNode, previousNode);
         if (Array.isArray(reconciledNode)) {
-          nodes.push(...reconciledNode);
+          reconciled.push(...reconciledNode);
         } else {
-          nodes.push(reconciledNode);
+          reconciled.push(reconciledNode);
         }
       } else if (nextNode) {
         const newNode = renderChildren(nextNode);
         if (Array.isArray(newNode)) {
-          nodes.push(...newNode);
+          reconciled.push(...newNode);
         } else {
-          nodes.push(newNode);
+          reconciled.push(newNode);
         }
         append(newNode, parent);
       } else if (previousNode) {
         previousNode.parentNode?.removeChild(previousNode);
       }
     }
-    return nodes;
+    return reconciled;
   } else if (previous instanceof Text && next instanceof Text) {
     previous.textContent = next.textContent;
     return previous;

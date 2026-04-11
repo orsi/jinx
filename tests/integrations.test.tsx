@@ -1,7 +1,8 @@
 import { describe, expect, test } from "vitest";
 import { useState } from "jinx";
+import { page } from "vitest/browser";
 
-describe("Integrations", () => {
+describe.only("Integrations", () => {
   test("replace element with array on toggle", async () => {
     let ReplaceElementWithArrayState: any;
     const ReplaceElementWithArray = () => {
@@ -48,30 +49,30 @@ describe("Integrations", () => {
     expect(container.textContent).toBe("bye");
   });
 
-  // test("fragments: nested and toggling in dom", async () => {
-  //   let FragmentTestState: any;
-  //   const FragmentTest = ({ children }: JSX.PropsWithChildren) => {
-  //     FragmentTestState = useState(0);
-  //     const [count] = FragmentTestState;
-  //     return (
-  //       <>
-  //         <>one, </>
-  //         {count % 3 === 0 ? children : "muahaha!"}
-  //       </>
-  //     );
-  //   };
+  test("fragments: nested and toggling in dom", async () => {
+    let FragmentTestState: any;
+    const FragmentTest = ({ children }: JSX.PropsWithChildren) => {
+      FragmentTestState = useState(0);
+      const [count] = FragmentTestState;
+      return (
+        <>
+          <>one, </>
+          {count % 3 === 0 ? children : "muahaha!"}
+        </>
+      );
+    };
 
-  //   document.body.appendChild(
-  //     <FragmentTest>
-  //       <>two, </>
-  //       <>three</>
-  //     </FragmentTest>
-  //   );
+    document.body.appendChild(
+      <FragmentTest>
+        <>two, </>
+        <>three</>
+      </FragmentTest>
+    );
 
-  //   await expect.element(page.getByText("one, two, three")).toBeInTheDocument();
-  //   FragmentTestState[1](2);
-  //   await expect.element(page.getByText("one, muahaha!")).toBeInTheDocument();
-  //   FragmentTestState[1](3);
-  //   await expect.element(page.getByText("one, two, three")).toBeInTheDocument();
-  // });
+    await expect.element(page.getByText("one, two, three")).toBeInTheDocument();
+    FragmentTestState[1](2);
+    await expect.element(page.getByText("one, muahaha!")).toBeInTheDocument();
+    FragmentTestState[1](3);
+    await expect.element(page.getByText("one, two, three")).toBeInTheDocument();
+  });
 });
