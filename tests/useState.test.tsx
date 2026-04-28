@@ -1,8 +1,12 @@
-import { describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test } from "vitest";
 import { page } from "vitest/browser";
 import { useState } from "jinx";
 
 describe("useState", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
   test("should render state value", async () => {
     const MyComponent = () => {
       const [value] = useState(1);
@@ -45,36 +49,35 @@ describe("useState", () => {
     expect(didUpdate).toBe(true);
   });
 
-  // test("changes to null then back to value", async () => {
-  //   let NullStateTestState: any;
-  //   const NullStateTest = () => {
-  //     NullStateTestState = useState(1);
-  //     const [data] = NullStateTestState;
-  //     return data;
-  //   };
+  test("changes to null then back to value", async () => {
+    let NullStateTestState: any;
+    const NullStateTest = () => {
+      NullStateTestState = useState(1);
+      const [data] = NullStateTestState;
+      return data;
+    };
 
-  //   const container = document.createElement("div");
-  //   document.body.appendChild(<NullStateTest />);
+    document.body.appendChild(<NullStateTest />);
 
-  //   NullStateTestState[1](null);
-  //   NullStateTestState[1](3);
-  //   expect(container.childNodes[0]).toBeInstanceOf(Comment);
-  // });
+    NullStateTestState[1](null);
+    expect(document.body.childNodes[0]).toBeInstanceOf(Comment);
+    NullStateTestState[1](3);
+    expect(document.body.childNodes[0]).toBeInstanceOf(Text);
+    expect(document.body.childNodes[0]?.textContent).toBe("3");
+  });
 
-  // test("changes to undefined", async () => {
-  //   let UndefinedStateTestState: any;
-  //   const UndefinedStateTest = () => {
-  //     UndefinedStateTestState = useState("hi");
-  //     const [data] = UndefinedStateTestState;
-  //     return data;
-  //   };
+  test("changes to undefined", async () => {
+    let UndefinedStateTestState: any;
+    const UndefinedStateTest = () => {
+      UndefinedStateTestState = useState("hi");
+      const [data] = UndefinedStateTestState;
+      return data;
+    };
 
-  //   const container = document.createElement("div");
-  //   document.body.appendChild(<UndefinedStateTest />);
-
-  //   UndefinedStateTestState[1](undefined);
-  //   expect(container.childNodes[0]).toBeInstanceOf(Comment);
-  // });
+    document.body.appendChild(<UndefinedStateTest />);
+    UndefinedStateTestState[1](undefined);
+    expect(document.body.childNodes[0]).toBeInstanceOf(Comment);
+  });
 
   test("update to 2 and isolated fragment stays in dom", async () => {
     let state: any;

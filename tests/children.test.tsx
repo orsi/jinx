@@ -1,7 +1,11 @@
-import { describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test } from "vitest";
 import { useState } from "jinx";
 
 describe("Children", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
   test("children swap order", async () => {
     let ChildrenSwapState: any;
     const Swap = () => {
@@ -9,9 +13,7 @@ describe("Children", () => {
       return data;
     };
 
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    container.appendChild(<Swap />);
+    document.body.appendChild(<Swap />);
 
     ChildrenSwapState[1]((value: any[]) => {
       const next = [...value];
@@ -19,8 +21,8 @@ describe("Children", () => {
       return next;
     });
 
-    expect(container.firstChild?.textContent).toContain("2");
-    expect(container.lastChild?.textContent).toContain("1");
+    expect(document.body.firstChild?.textContent).toContain("2");
+    expect(document.body.lastChild?.textContent).toContain("1");
   });
 
   test("children shrink to empty", async () => {

@@ -1,8 +1,12 @@
-import { describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test } from "vitest";
 import { useState } from "jinx";
 import { page } from "vitest/browser";
 
-describe.only("Integrations", () => {
+describe("Integrations", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
   test("replace element with array on toggle", async () => {
     let ReplaceElementWithArrayState: any;
     const ReplaceElementWithArray = () => {

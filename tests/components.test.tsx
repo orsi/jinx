@@ -1,8 +1,12 @@
-import { describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test } from "vitest";
 import { page } from "vitest/browser";
 import { useState } from "jinx";
 
 describe("Components", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
   test("returns array of mixed values", async () => {
     const Comp = () => [1, "hi", 2, 3, 4];
     document.body.appendChild(<Comp />);

@@ -1,7 +1,11 @@
-import { describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test } from "vitest";
 import { page } from "vitest/browser";
 
 describe("Fragments", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
   test("empty fragment should render comment placeholder", async () => {
     document.body.append(<></>);
     expect(document.body.childNodes[1]?.nodeType === Node.COMMENT_NODE);

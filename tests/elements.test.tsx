@@ -1,6 +1,10 @@
-import { describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test } from "vitest";
 
 describe("Elements", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
   test("should render", async () => {
     document.body.append(<div />);
     const div = document.querySelector("div");
@@ -27,11 +31,11 @@ describe("Elements", () => {
     );
 
     console.dir(document.body.childNodes);
-    expect(document.body.childNodes?.[3]?.nodeName).toBe("H1");
-    expect(document.body.childNodes?.[4]?.nodeName).toBe("MARQUEE");
-    expect(document.body.childNodes?.[5]?.nodeName).toBe("#comment");
-    expect(document.body.childNodes?.[6]?.nodeName).toBe("DIV");
-    expect(document.body.childNodes?.[7]?.nodeName).toBe("DIV");
+    expect(document.body.childNodes?.[0]?.nodeName).toBe("H1");
+    expect(document.body.childNodes?.[1]?.nodeName).toBe("MARQUEE");
+    expect(document.body.childNodes?.[2]?.nodeName).toBe("#comment");
+    expect(document.body.childNodes?.[3]?.nodeName).toBe("DIV");
+    expect(document.body.childNodes?.[4]?.nodeName).toBe("DIV");
   });
 
   test("css style object applied to element", async () => {
@@ -48,6 +52,7 @@ describe("Elements", () => {
       </div>
     );
 
+    expect(document.body.childNodes[0]?.nodeName).toBe("DIV");
     const div = document.querySelector<HTMLDivElement>("#div")!;
     expect(div).toBeInTheDocument();
     expect(div.style.backgroundColor).toBe("red");

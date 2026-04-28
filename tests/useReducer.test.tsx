@@ -1,8 +1,12 @@
-import { describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test } from "vitest";
 import { page } from "vitest/browser";
 import { useReducer } from "jinx";
 
 describe("useReducer", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
   test("reducer: toggles true to false", async () => {
     let reducer: any;
     const fakeReducer = (state: boolean, action: any) => {
