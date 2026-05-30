@@ -168,7 +168,28 @@ new MutationObserver(() => {
  */
 export function jsx(tag: string | JSX.ComponentFunction, props: JSX.Props, ...children: JSX.Child[]): Node {
   if (typeof tag === "string") {
-    const node = document.createElement(tag);
+    // default to HTML document.createElement, as invalid html tags will
+    // return an HTMLUnknownElement
+    let node: HTMLElement | SVGElement | MathMLElement = document.createElement(tag);
+
+    // if HTMLUnknownElement, attempt SVG
+    //
+    if (node.constructor.name === "HTMLUnknownElement") {
+      node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    }
+
+    // if node is  SVGElement, it most likely is an invalid SVG tag,
+    // as most known SVG elements will be subclasses. e.g.:
+    //    <svg> SVGSVGElement
+    //    <circle> SVGCircleElement
+    //    <path> SVGPathElement
+    if (node.constructor.name === "SVGElement") {
+      node = document.createElementNS("http://www.w3.org/1998/Math/MathML", tag);
+    }
+
+    // TODO: if a tag is not a valid tag of ANY namespace, we should probably
+    // default to HTMLElement
+
     const childNodes = renderChildren(children);
     append(childNodes, node);
     return commit(node, props);

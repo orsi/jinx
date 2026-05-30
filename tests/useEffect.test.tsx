@@ -28,7 +28,6 @@ describe("useEffect", () => {
       UseEffectCleanupTestState = useState(0);
       useEffect(() => {
         return () => {
-          console.log(`cleanup run ${cleanupCount}`);
           cleanupCount++;
         };
       }, [UseEffectCleanupTestState[0]]);
