@@ -497,7 +497,7 @@ function reconcile(next: Node | Node[], previous: Node | Node[]) {
       }
     }
 
-    const committed = commit(previous, next.__props);
+    const committed = commit(previous as any, next.__props);
     onRendered(next.__jinx);
 
     return committed;
@@ -526,11 +526,7 @@ function reconcile(next: Node | Node[], previous: Node | Node[]) {
 //       UUUUUUUUU            TTTTTTTTTTT      IIIIIIIIIILLLLLLLLLLLLLLLLLLLLLLLL SSSSSSSSSSSSSSS
 
 /** Removes and applied props on an element. */
-function commit(element: Node, next?: JSX.Props) {
-  if (!(element instanceof HTMLElement)) {
-    return element;
-  }
-
+function commit(element: HTMLElement | SVGElement | MathMLElement, next?: JSX.Props) {
   // remove previous
   for (const [prop, value] of Object.entries(element.__props ?? {})) {
     const isEvent = prop.startsWith("on") && prop.substring(2).toLowerCase() in element;
