@@ -27,6 +27,7 @@ declare global {
       style?: Partial<CSSStyleDeclaration>;
       class?: string;
       children?: any;
+      ref?: RefObject<HTMLElementTagNameMap[T]>;
     } & {
       // hot damn does this actually work?? onclick => onClick
       [K in keyof GlobalEventHandlers as K extends `on${infer E}`
@@ -72,7 +73,7 @@ declare global {
     index: number;
     initialValue: T;
     previousValue?: T;
-    type: "effect" | "state";
+    type: "effect" | "ref" | "state";
     value?: T;
   };
 
@@ -168,12 +169,15 @@ new MutationObserver(() => {
  */
 export function jsx(tag: string | JSX.ComponentFunction, props: JSX.Props, ...children: JSX.Child[]): Node {
   if (typeof tag === "string") {
+    // TODO: in the future, we can probably just safely assume every element
+    // is an HTMLElement by default, and when we encounter an <svg> or <math>
+    // element, we can convert all their children to the proper namespace.
+
     // default to HTML document.createElement, as invalid html tags will
     // return an HTMLUnknownElement
     let node: HTMLElement | SVGElement | MathMLElement = document.createElement(tag);
 
     // if HTMLUnknownElement, attempt SVG
-    //
     if (node.constructor.name === "HTMLUnknownElement") {
       node = document.createElementNS("http://www.w3.org/2000/svg", tag);
     }
@@ -382,6 +386,16 @@ export function useReducer<S = any, A = any>(reducer: Reducer<S, A>, initialStat
   return [hook.value, set] as [S, typeof set];
 }
 
+export type RefObject<T> = T extends undefined ? never : { current: T | undefined };
+
+/** Returns a stable reference of { current: V }. */
+export function useRef<V>(initialValue: V): RefObject<V>;
+export function useRef<V>(): RefObject<V>;
+export function useRef<V>(initialValue?: V): RefObject<V> {
+  const hook = useHook("ref", { current: initialValue } as RefObject<V>);
+  return hook.value;
+}
+
 // RRRRRRRRRRRRRRRRR   EEEEEEEEEEEEEEEEEEEEEENNNNNNNN        NNNNNNNNDDDDDDDDDDDDD      EEEEEEEEEEEEEEEEEEEEEERRRRRRRRRRRRRRRRR
 // R::::::::::::::::R  E::::::::::::::::::::EN:::::::N       N::::::ND::::::::::::DDD   E::::::::::::::::::::ER::::::::::::::::R
 // R::::::RRRRRR:::::R E::::::::::::::::::::EN::::::::N      N::::::ND:::::::::::::::DD E::::::::::::::::::::ER::::::RRRRRR:::::R
@@ -533,6 +547,8 @@ function commit(element: HTMLElement | SVGElement | MathMLElement, next?: JSX.Pr
     if (isEvent) {
       const eventName = prop.substring(2).toLowerCase() as keyof ElementEventMap;
       element.removeEventListener(eventName, value as EventListenerOrEventListenerObject);
+    } else if (prop === "ref" && value && typeof value === "object" && "current" in value) {
+      value.current = null;
     } else if (prop === "style" && value != null && typeof value === "object") {
       for (const [styleProp] of Object.entries(value)) {
         element.style.removeProperty(styleProp);
@@ -548,6 +564,8 @@ function commit(element: HTMLElement | SVGElement | MathMLElement, next?: JSX.Pr
     if (isEvent) {
       const eventName = prop.substring(2).toLowerCase() as keyof ElementEventMap;
       element.addEventListener(eventName, value as EventListenerOrEventListenerObject);
+    } else if (prop === "ref" && value && typeof value === "object" && "current" in value) {
+      value.current = element;
     } else if (prop === "style" && value != null && typeof value === "object") {
       for (const [styleProp, styleValue] of Object.entries(value)) {
         // n.b. element.style.setProperty() does not support camelCase style objects like
