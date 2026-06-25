@@ -27,7 +27,7 @@ declare global {
       style?: Partial<CSSStyleDeclaration>;
       class?: string;
       children?: any;
-      ref?: RefObject<HTMLElementTagNameMap[T]>;
+      ref?: ElementRef<HTMLElementTagNameMap[T]>;
     } & {
       // hot damn does this actually work?? onclick => onClick
       [K in keyof GlobalEventHandlers as K extends `on${infer E}`
@@ -412,13 +412,30 @@ export function useReducer<S = any, A = any>(reducer: Reducer<S, A>, initialStat
   return [hook.value, set] as [S, typeof set];
 }
 
-export type RefObject<T> = T extends undefined ? never : { current: T | undefined };
+declare const refBrand: unique symbol;
+export type RefObject<T> = {
+  current: T;
+
+  /**
+   * Phantom field that makes RefObject<T> invariant in T.
+   * Prevents refs for different element types from being assignable,
+   * such as HTMLDivElement being valid for a HTMLSpanElement, such
+   * as in:
+   * 
+   *    <span ref={divRef}>Hello!</span>
+   * 
+   * Used only by the type system; never exists at runtime.
+   */
+  readonly [refBrand]?: (value: T) => T;
+};
+
+export type ElementRef<T extends Element> = RefObject<T | undefined>;
 
 /** Returns a stable reference of { current: V }. */
 export function useRef<V>(initialValue: V): RefObject<V>;
-export function useRef<V>(): RefObject<V>;
-export function useRef<V>(initialValue?: V): RefObject<V> {
-  const hook = useHook("ref", { current: initialValue } as RefObject<V>);
+export function useRef<V>(): RefObject<V | undefined>;
+export function useRef<V>(initialValue?: V): RefObject<V | undefined> {
+  const hook = useHook("ref", { current: initialValue });
   return hook.value;
 }
 
