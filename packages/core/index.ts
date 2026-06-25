@@ -73,7 +73,7 @@ declare global {
     index: number;
     initialValue: T;
     previousValue?: T;
-    type: "effect" | "ref" | "state";
+    type: "callback" | "effect" | "ref" | "state";
     value?: T;
   };
 
@@ -343,6 +343,32 @@ export function useEffect(effect: EffectFunction, dependencies?: unknown[]) {
     dependencies,
     previousDependencies: hook.value.dependencies,
   };
+}
+
+export type CallbackFunction<T = any> = (...args: T[]) => void | (() => void);
+
+/** Returns a callback with updated state depdencies. */
+export function useCallback(fn: CallbackFunction, dependencies?: unknown[]) {
+  const hook = useHook("callback", {
+    fn,
+  });
+  hook.value = {
+    ...hook.value,
+    dependencies,
+    previousDependencies: hook.value.dependencies,
+  };
+
+  const isOutdated =
+    hook.value.previousDependencies != null &&
+    hook.value.previousDependencies.some((value: any, i: number) => {
+      return !Object.is(value, hook.value.dependencies?.[i]);
+    });
+
+  if (isOutdated || !hook.value.fn) {
+    hook.value.fn = fn;
+  }
+
+  return hook.value.fn;
 }
 
 /** Returns state value and setter. */
